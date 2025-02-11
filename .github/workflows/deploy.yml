@@ -28,7 +28,7 @@ jobs:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           echo $SF_AUTH_URL > authFile.txt
-          sfdx auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultdevhubusername
+          sfdx force:auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultdevhubusername
 
       - name: Run Validation Deployment
         run: |
@@ -53,7 +53,7 @@ jobs:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           echo $SF_AUTH_URL > authFile.txt
-          sfdx auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultdevhubusername
+          sfdx force:auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultdevhubusername
 
       - name: Deploy to sandbox
         run: |
