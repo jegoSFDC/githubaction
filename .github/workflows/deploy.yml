@@ -32,7 +32,7 @@ jobs:
 
       - name: Run Validation Deployment
         run: |
-          sfdx force:source:deploy -p force-app --checkonly --targetusername sandbox
+          sfdx force:source:deploy -p force-app --checkonly --targetusername jegozee@gmail.com.dev
 
   deploy-to-sandbox:
     name: Deploy to sandbox
