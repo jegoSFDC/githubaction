@@ -32,7 +32,7 @@ jobs:
           
       - name: Run Validation Deployment
         run: |
-          sf project deploy validate --source-dir force-app --target-org sandbox --test-level NoTestRun --verbose
+          sf project deploy validate --source-dir force-app --target-org sandbox --verbose
 
   deploy-to-sandbox:
     name: Deploy to sandbox
