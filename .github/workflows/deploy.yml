@@ -28,11 +28,11 @@ jobs:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           echo $SF_AUTH_URL > authFile.txt
-          sfdx auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultdevhubusername
-
+          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+          
       - name: Run Validation Deployment
         run: |
-          sfdx force:source:deploy -p force-app --checkonly --targetusername jegozee@gmail.com.dev
+          sfdx force:source:deploy -p force-app --checkonly --targetusername sandbox
 
   deploy-to-sandbox:
     name: Deploy to sandbox
