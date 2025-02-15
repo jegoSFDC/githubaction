@@ -20,7 +20,7 @@ jobs:
 
       - name: Install Salesforce CLI
         run: |
-          npm install --global sfdx-cli
+          npm install --global @salesforce/cli
           sfdx --version
 
       - name: Authenticate Salesforce (PR Validation)
@@ -28,7 +28,7 @@ jobs:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           echo "$SF_AUTH_URL" > authFile.txt
-          sfdx auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultusername
+          sfdx force:auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultusername
           
       - name: Run Validation Deployment
         run: |
