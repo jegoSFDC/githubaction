@@ -27,8 +27,8 @@ jobs:
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
-          echo $SF_AUTH_URL > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+          echo "$SF_AUTH_URL" > authFile.txt
+          sfdx auth:sfdxurl:store --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
           
       - name: Run Validation Deployment
         run: |
