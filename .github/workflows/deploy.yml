@@ -27,12 +27,12 @@ jobs:
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
-          echo $SF_AUTH_URL > authFile.txt
-          sfdx auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultdevhubusername
-
+          echo "$SF_AUTH_URL" > authFile.txt
+          sfdx force:auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultusername
+          
       - name: Run Validation Deployment
         run: |
-          sfdx force:source:deploy -p force-app --checkonly --targetusername sandbox
+          sfdx force:source:deploy -p force-app --targetusername sandbox --checkonly --verbose -l NoTestRun
 
   deploy-to-sandbox:
     name: Deploy to sandbox
@@ -53,8 +53,8 @@ jobs:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           echo $SF_AUTH_URL > authFile.txt
-          sfdx auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultdevhubusername
+          sfdx force:auth:sfdxurl:store -f authFile.txt --setalias sandbox --setdefaultusername
 
       - name: Deploy to sandbox
         run: |
-          sfdx force:source:deploy -p force-app --targetusername sandbox --wait 10 --verbose
+          sfdx force:source:deploy -p force-app --targetusername sandbox --verbose
