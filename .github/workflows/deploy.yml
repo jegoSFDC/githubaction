@@ -32,7 +32,7 @@ jobs:
           
       - name: Run Validation Deployment
         run: |
-          sfdx force:source:deploy -p force-app --targetusername sandbox --checkonly --verbose -l NoTestRun
+          sf project deploy validate --source-dir force-app --target-org sandbox --verbose
 
   deploy-to-sandbox:
     name: Deploy to sandbox
