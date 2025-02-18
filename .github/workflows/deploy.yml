@@ -18,10 +18,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Salesforce CLI
+      - name: Install Salesforce CLI & SGD
         run: |
-          npm install --global @salesforce/cli
-          sfdx --version
+          npm install --global @salesforce/cli sfdx-git-delta
+          sf --version
+          sgd --version
 
       - name: Authenticate Salesforce (PR Validation)
         env:
@@ -29,13 +30,18 @@ jobs:
         run: |
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
-          
+
+      - name: Detect Changed Metadata
+        run: |
+          mkdir -p changed-source
+          sgd delta --to HEAD --from HEAD~1 --output changed-source --source force-app
+
       - name: Run Validation Deployment
         run: |
-          sf project deploy start --source-dir force-app --target-org sandbox --dry-run --verbose --test-level NoTestRun
+          sf project deploy start --source-dir changed-source --target-org sandbox --dry-run --verbose --test-level NoTestRun
           
   deploy-to-sandbox:
-    name: Deploy to sandbox
+    name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
@@ -43,18 +49,24 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Salesforce CLI
+      - name: Install Salesforce CLI & SGD
         run: |
-          npm install --global @salesforce/cli
-          sfdx --version
+          npm install --global @salesforce/cli sfdx-git-delta
+          sf --version
+          sgd --version
 
       - name: Authenticate Salesforce
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
-          echo $SF_AUTH_URL > authFile.txt
+          echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
-      - name: Deploy to sandbox
+      - name: Detect Changed Metadata
         run: |
-          sf project deploy start --source-dir force-app --target-org sandbox --verbose
+          mkdir -p changed-source
+          sgd delta --to HEAD --from HEAD~1 --output changed-source --source force-app
+
+      - name: Deploy to Sandbox
+        run: |
+          sf project deploy start --source-dir changed-source --target-org sandbox --verbose
