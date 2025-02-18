@@ -23,6 +23,13 @@ jobs:
           npm install --global sfdx-cli
           sfdx --version
 
+      - name: Install & Run Salesforce Code analyzer
+        run: |
+          sf plugins install @salesforce/sfdx-scanner
+          mkdir reports
+          sf scanner run --format html --target "force-app" --engine "eslint-lwc,retire-js,pmd,cpd" --category "Design, Best Practices,Code Style, Performance, Security" --outfile reports/scan-reports.html
+         
+
       - name: Authenticate Salesforce (PR Validation)
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
