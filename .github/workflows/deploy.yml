@@ -18,12 +18,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Salesforce CLI and SGD
+      - name: Install Salesforce CLI
         run: |
           npm install --global @salesforce/cli
-          npm install --global sfdx-git-delta
           sfdx --version
-          sgd --version
 
       - name: Authenticate Salesforce (PR Validation)
         env:
@@ -32,10 +30,10 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
 
-      - name: Generate Delta
+      - name: Generate Delta using SGD
         run: |
           git fetch origin main
-          sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
+          npx sfdx sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
 
       - name: Validate Delta Deployment
         run: |
@@ -47,11 +45,11 @@ jobs:
               --test-level RunLocalTests \
               --verbose
           else
-            echo "No delta package found, skipping validation."
+            echo "No delta package found. Skipping PR validation."
           fi
 
   deploy-to-sandbox:
-    name: Deploy to sandbox
+    name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -59,12 +57,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Salesforce CLI and SGD
+      - name: Install Salesforce CLI
         run: |
           npm install --global @salesforce/cli
-          npm install --global sfdx-git-delta
           sfdx --version
-          sgd --version
 
       - name: Authenticate Salesforce
         env:
@@ -73,10 +69,10 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
-      - name: Generate Delta
+      - name: Generate Delta using SGD
         run: |
           git fetch origin main
-          sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
+          npx sfdx sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
 
       - name: Deploy Delta to Sandbox
         run: |
@@ -87,5 +83,5 @@ jobs:
               --test-level RunLocalTests \
               --verbose
           else
-            echo "No changes detected. Skipping deployment."
+            echo "No changes detected. Skipping delta deployment."
           fi
