@@ -17,13 +17,13 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for delta comparison
 
-      - name: Install Salesforce CLI and sfdx-git-delta Plugin
+      - name: Install Salesforce CLI and sfdx-git-delta
         run: |
           npm install --global @salesforce/cli
           echo y | sf plugins install sfdx-git-delta
-          sfdx --version
-          sfdx plugins --core
 
       - name: Authenticate Salesforce (PR Validation)
         env:
@@ -32,14 +32,15 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
 
-      - name: Generate Delta using sfdx-git-delta
+      - name: Generate Delta
         run: |
           git fetch origin main
           sfdx sgd:source:delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
 
       - name: Validate Delta Deployment
         run: |
-          if [ -d ".sgd_delta/package" ]; then
+          if [ -d ".sgd_delta/package" ] && [ "$(ls -A .sgd_delta/package)" ]; then
+            echo "Delta package found. Proceeding with validation..."
             sf project deploy start \
               --source-dir .sgd_delta/package \
               --target-org sandbox \
@@ -47,7 +48,7 @@ jobs:
               --test-level RunLocalTests \
               --verbose
           else
-            echo "No delta package found. Skipping PR validation."
+            echo "No delta found. Skipping PR validation."
           fi
 
   deploy-to-sandbox:
@@ -58,13 +59,13 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install Salesforce CLI and sfdx-git-delta Plugin
+      - name: Install Salesforce CLI and sfdx-git-delta
         run: |
           npm install --global @salesforce/cli
           echo y | sf plugins install sfdx-git-delta
-          sfdx --version
-          sfdx plugins --core
 
       - name: Authenticate Salesforce
         env:
@@ -73,19 +74,20 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
-      - name: Generate Delta using sfdx-git-delta
+      - name: Generate Delta
         run: |
           git fetch origin main
           sfdx sgd:source:delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
 
       - name: Deploy Delta to Sandbox
         run: |
-          if [ -d ".sgd_delta/package" ]; then
+          if [ -d ".sgd_delta/package" ] && [ "$(ls -A .sgd_delta/package)" ]; then
+            echo "Delta package found. Proceeding with deployment..."
             sf project deploy start \
               --source-dir .sgd_delta/package \
               --target-org sandbox \
               --test-level RunLocalTests \
               --verbose
           else
-            echo "No changes detected. Skipping delta deployment."
+            echo "No delta found. Skipping deployment."
           fi
