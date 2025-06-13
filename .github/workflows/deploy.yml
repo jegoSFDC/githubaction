@@ -17,14 +17,13 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Required for full Git history
 
-      - name: Install Salesforce CLI and sfdx-git-delta
+      - name: Install Salesforce CLI and sfdx-git-delta Plugin
         run: |
           npm install --global @salesforce/cli
           echo y | sf plugins install sfdx-git-delta
-          sf plugins --core
+          sfdx --version
+          sfdx plugins --core
 
       - name: Authenticate Salesforce (PR Validation)
         env:
@@ -33,27 +32,14 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
 
-      - name: Fetch base branch
+      - name: Generate Delta using sfdx-git-delta
         run: |
           git fetch origin main
+          sfdx sgd:source:delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
 
-      - name: Show commit diff for delta
+      - name: Validate Delta Deployment
         run: |
-          echo "== Commits in PR =="
-          git log origin/main..HEAD --oneline || true
-
-      - name: Generate Delta
-        run: |
-          sfdx sgd:source:delta \
-            --to HEAD \
-            --from origin/main \
-            --output .sgd_delta \
-            --generate-delta
-
-      - name: Run Delta Validation Deployment
-        run: |
-          if [ -d ".sgd_delta/package" ] && [ "$(ls -A .sgd_delta/package)" ]; then
-            echo "Delta package found. Validating..."
+          if [ -d ".sgd_delta/package" ]; then
             sf project deploy start \
               --source-dir .sgd_delta/package \
               --target-org sandbox \
@@ -61,25 +47,24 @@ jobs:
               --test-level RunLocalTests \
               --verbose
           else
-            echo "No delta package found. Skipping validation."
+            echo "No delta package found. Skipping PR validation."
           fi
 
   deploy-to-sandbox:
-    name: Delta Deployment to Sandbox
+    name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Install Salesforce CLI and sfdx-git-delta
+      - name: Install Salesforce CLI and sfdx-git-delta Plugin
         run: |
           npm install --global @salesforce/cli
           echo y | sf plugins install sfdx-git-delta
-          sf plugins --core
+          sfdx --version
+          sfdx plugins --core
 
       - name: Authenticate Salesforce
         env:
@@ -88,32 +73,19 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
-      - name: Fetch base branch
+      - name: Generate Delta using sfdx-git-delta
         run: |
           git fetch origin main
-
-      - name: Show commit diff for delta
-        run: |
-          echo "== Commits since main =="
-          git log origin/main..HEAD --oneline || true
-
-      - name: Generate Delta
-        run: |
-          sfdx sgd:source:delta \
-            --to HEAD \
-            --from origin/main \
-            --output .sgd_delta \
-            --generate-delta
+          sfdx sgd:source:delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
 
       - name: Deploy Delta to Sandbox
         run: |
-          if [ -d ".sgd_delta/package" ] && [ "$(ls -A .sgd_delta/package)" ]; then
-            echo "Delta package found. Deploying..."
+          if [ -d ".sgd_delta/package" ]; then
             sf project deploy start \
               --source-dir .sgd_delta/package \
               --target-org sandbox \
               --test-level RunLocalTests \
               --verbose
           else
-            echo "No delta package found. Skipping deployment."
+            echo "No changes detected. Skipping delta deployment."
           fi
