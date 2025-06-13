@@ -61,7 +61,7 @@ jobs:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    container: jfgarcia268/vlocity_sfdx:latest
+    container: salesforce/salesforcedx:latest-full
 
     steps:
       - name: Checkout Repository with full history
@@ -79,8 +79,14 @@ jobs:
       - name: Create Delta Output Directory
         run: mkdir -p delta
 
+      - name: Install sfdx-git-delta Plugin
+        run: |
+          echo y | sfdx plugins:install sfdx-git-delta
+          sfdx plugins --core
+
       - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
           sfdx sgd:source:delta --to HEAD --from HEAD~1 --output delta --generate-delta
 
