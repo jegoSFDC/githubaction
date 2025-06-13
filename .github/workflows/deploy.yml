@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Salesforce CLI and sfdx-git-delta Plugin
         run: |
@@ -32,6 +34,9 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
 
+      - name: Create Delta Output Directory
+        run: mkdir -p .sgd_delta
+
       - name: Generate Delta using sfdx-git-delta
         run: |
           git fetch origin main
@@ -39,7 +44,8 @@ jobs:
 
       - name: Validate Delta Deployment
         run: |
-          if [ -d ".sgd_delta/package" ]; then
+          if [ -d ".sgd_delta/package" ] && [ "$(ls -A .sgd_delta/package)" ]; then
+            echo "Delta found. Validating..."
             sf project deploy start \
               --source-dir .sgd_delta/package \
               --target-org sandbox \
@@ -58,6 +64,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Salesforce CLI and sfdx-git-delta Plugin
         run: |
@@ -73,6 +81,9 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
+      - name: Create Delta Output Directory
+        run: mkdir -p .sgd_delta
+
       - name: Generate Delta using sfdx-git-delta
         run: |
           git fetch origin main
@@ -80,7 +91,8 @@ jobs:
 
       - name: Deploy Delta to Sandbox
         run: |
-          if [ -d ".sgd_delta/package" ]; then
+          if [ -d ".sgd_delta/package" ] && [ "$(ls -A .sgd_delta/package)" ]; then
+            echo "Delta package found. Deploying..."
             sf project deploy start \
               --source-dir .sgd_delta/package \
               --target-org sandbox \
