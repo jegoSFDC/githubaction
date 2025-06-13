@@ -13,19 +13,13 @@ jobs:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    container: jfgarcia268/vlocity_sfdx:latest
 
     steps:
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Install Salesforce CLI and sfdx-git-delta
-        run: |
-          npm install --global @salesforce/cli
-          echo y | sf plugins install sfdx-git-delta
-          sfdx --version
-          sfdx plugins --core
 
       - name: Authenticate Salesforce (PR Validation)
         env:
@@ -61,19 +55,13 @@ jobs:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    container: jfgarcia268/vlocity_sfdx:latest
 
     steps:
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Install Salesforce CLI and sfdx-git-delta
-        run: |
-          npm install --global @salesforce/cli
-          echo y | sf plugins install sfdx-git-delta
-          sfdx --version
-          sfdx plugins --core
 
       - name: Authenticate Salesforce (Deploy)
         env:
