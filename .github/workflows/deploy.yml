@@ -13,7 +13,7 @@ jobs:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    container: jfgarcia268/vlocity_sfdx:latest
+    container: jfgarcia268/vlocity_sfdx
 
     steps:
       - name: Checkout Repository with full history
