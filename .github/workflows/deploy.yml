@@ -18,10 +18,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Salesforce CLI
+      - name: Install Salesforce CLI and sfdx-git-delta Plugin
         run: |
           npm install --global @salesforce/cli
+          echo y | sf plugins install sfdx-git-delta
           sfdx --version
+          sfdx plugins --core
 
       - name: Authenticate Salesforce (PR Validation)
         env:
@@ -30,58 +32,4 @@ jobs:
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
 
-      - name: Generate Delta using SGD
-        run: |
-          git fetch origin main
-          npx sfdx sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
-
-      - name: Validate Delta Deployment
-        run: |
-          if [ -d ".sgd_delta/package" ]; then
-            sf project deploy start \
-              --source-dir .sgd_delta/package \
-              --target-org sandbox \
-              --dry-run \
-              --test-level RunLocalTests \
-              --verbose
-          else
-            echo "No delta package found. Skipping PR validation."
-          fi
-
-  deploy-to-sandbox:
-    name: Deploy to Sandbox
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install Salesforce CLI
-        run: |
-          npm install --global @salesforce/cli
-          sfdx --version
-
-      - name: Authenticate Salesforce
-        env:
-          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
-        run: |
-          echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
-
-      - name: Generate Delta using SGD
-        run: |
-          git fetch origin main
-          npx sfdx sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
-
-      - name: Deploy Delta to Sandbox
-        run: |
-          if [ -d ".sgd_delta/package" ]; then
-            sf project deploy start \
-              --source-dir .sgd_delta/package \
-              --target-org sandbox \
-              --test-level RunLocalTests \
-              --verbose
-          else
-            echo "No changes detected. Skipping delta deployment."
-          fi
+      - n
