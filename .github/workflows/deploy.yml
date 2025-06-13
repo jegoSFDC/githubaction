@@ -85,10 +85,10 @@ jobs:
       - name: Create Delta Output Directory
         run: mkdir -p delta
 
-      - name: Generate Delta using sfdx-git-delta
+      - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
         run: |
           git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
+          sfdx sgd:source:delta --to HEAD --from HEAD~1 --output delta --generate-delta
 
       - name: Deploy Delta to Sandbox with Specific Test Class
         run: |
