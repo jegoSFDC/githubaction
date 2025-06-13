@@ -13,15 +13,17 @@ jobs:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Salesforce CLI
+      - name: Install Salesforce CLI and SGD
         run: |
           npm install --global @salesforce/cli
+          npm install --global sfdx-git-delta
           sfdx --version
+          sgd --version
 
       - name: Authenticate Salesforce (PR Validation)
         env:
@@ -29,32 +31,61 @@ jobs:
         run: |
           echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
-          
-      - name: Run Validation Deployment
+
+      - name: Generate Delta
         run: |
-          sf project deploy start --source-dir force-app --target-org sandbox --dry-run --verbose --test-level NoTestRun
-          
+          git fetch origin main
+          sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
+
+      - name: Validate Delta Deployment
+        run: |
+          if [ -d ".sgd_delta/package" ]; then
+            sf project deploy start \
+              --source-dir .sgd_delta/package \
+              --target-org sandbox \
+              --dry-run \
+              --test-level RunLocalTests \
+              --verbose
+          else
+            echo "No delta package found, skipping validation."
+          fi
+
   deploy-to-sandbox:
     name: Deploy to sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Salesforce CLI
+      - name: Install Salesforce CLI and SGD
         run: |
           npm install --global @salesforce/cli
+          npm install --global sfdx-git-delta
           sfdx --version
+          sgd --version
 
       - name: Authenticate Salesforce
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
-          echo $SF_AUTH_URL > authFile.txt
+          echo "$SF_AUTH_URL" > authFile.txt
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
-      - name: Deploy to sandbox
+      - name: Generate Delta
         run: |
-          sf project deploy start --source-dir force-app --target-org sandbox --verbose
+          git fetch origin main
+          sgd source delta --to HEAD --from origin/main --output .sgd_delta --generate-delta
+
+      - name: Deploy Delta to Sandbox
+        run: |
+          if [ -d ".sgd_delta/package" ]; then
+            sf project deploy start \
+              --source-dir .sgd_delta/package \
+              --target-org sandbox \
+              --test-level RunLocalTests \
+              --verbose
+          else
+            echo "No changes detected. Skipping deployment."
+          fi
