@@ -33,6 +33,7 @@ jobs:
 
       - name: Generate Delta using sfdx-git-delta
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
           sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
 
