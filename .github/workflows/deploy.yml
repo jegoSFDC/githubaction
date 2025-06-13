@@ -18,16 +18,16 @@ jobs:
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Important for delta
+          fetch-depth: 0
 
-      - name: Install Salesforce CLI and sfdx-git-delta Plugin
+      - name: Install Salesforce CLI and sfdx-git-delta
         run: |
           npm install --global @salesforce/cli
           echo y | sf plugins install sfdx-git-delta
           sfdx --version
           sfdx plugins --core
 
-      - name: Authenticate Salesforce
+      - name: Authenticate Salesforce (PR Validation)
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
@@ -37,12 +37,12 @@ jobs:
       - name: Create Delta Output Directory
         run: mkdir -p delta
 
-      - name: Generate Delta Package
+      - name: Generate Delta using sfdx-git-delta
         run: |
           git fetch origin main
           sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
 
-      - name: Validate Delta Deployment
+      - name: Validate Delta Deployment with Specific Test Class
         run: |
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
             echo "Delta found. Proceeding with validation..."
@@ -50,8 +50,56 @@ jobs:
               --source-dir delta/force-app \
               --target-org sandbox \
               --dry-run \
-              --test-level RunLocalTests \
+              --test-level RunSpecifiedTests \
+              --tests "ChangePasswordControllerTest" \
               --verbose
           else
-            echo "No changes detected in delta. Skipping validation."
+            echo "No deployable metadata found in delta. Skipping validation."
+          fi
+
+  deploy-to-sandbox:
+    name: Deploy to Sandbox
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout Repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Salesforce CLI and sfdx-git-delta
+        run: |
+          npm install --global @salesforce/cli
+          echo y | sf plugins install sfdx-git-delta
+          sfdx --version
+          sfdx plugins --core
+
+      - name: Authenticate Salesforce (Deploy)
+        env:
+          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
+        run: |
+          echo "$SF_AUTH_URL" > authFile.txt
+          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+
+      - name: Create Delta Output Directory
+        run: mkdir -p delta
+
+      - name: Generate Delta using sfdx-git-delta
+        run: |
+          git fetch origin main
+          sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
+
+      - name: Deploy Delta to Sandbox with Specific Test Class
+        run: |
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "Deployable delta found. Deploying..."
+            sf project deploy start \
+              --source-dir delta/force-app \
+              --target-org sandbox \
+              --test-level RunSpecifiedTests \
+              --tests "ChangePasswordControllerTest" \
+              --verbose
+          else
+            echo "No deployable metadata found. Skipping deployment."
           fi
