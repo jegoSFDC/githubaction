@@ -1,0 +1,7 @@
+projectPath: ./vlocity
+gitCheck: true
+autoUpdateSettings: true
+autoRetryErrors: true
+activate: true
+useSfdxCli: true
+npmAuthKey: Y3VzdG9tZXJfc2t5X3VrX2xpbWl0ZWQ6dmxCSDlPU1dwZ2M5NVVXZg==
