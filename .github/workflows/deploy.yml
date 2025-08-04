@@ -43,7 +43,7 @@ jobs:
         run: |
           if [ -f "epc-deploy.yaml" ]; then
             echo "Running EPC Vlocity Deployment..."
-            vlocity -job epc-deploy.yaml packDeploy
+            vlocity -job epc-deploy.yaml --salesforce.username "${{ secrets.SF_USERNAME }}" packDeploy
           else
             echo "epc-deploy.yaml not found. Skipping deployment."
           fi
