@@ -1,0 +1,24 @@
+{
+    "ElementTypeComponentMapping": "{\"ElementTypeToHTMLTemplateList\":[]}",
+    "IsIntegProcdSignatureAvl": false,
+    "IsIntegrationProcedure": false,
+    "IsManagedUsingStdDesigner": true,
+    "IsMetadataCacheDisabled": false,
+    "IsOmniScriptEmbeddable": false,
+    "IsTestProcedure": false,
+    "IsWebCompEnabled": true,
+    "Language": "English",
+    "Name": "User Info Form",
+    "OmniProcessElement": [
+        "UserInfo_Basic_English_Element_Step1.json",
+        "UserInfo_Basic_English_Element_Enter-Your-Details.json"
+    ],
+    "OmniProcessType": "OmniScript",
+    "PropertySetConfig": "UserInfo_Basic_English_PropertySetConfig.json",
+    "SubType": "Basic",
+    "Type": "UserInfo",
+    "UniqueName": "UserInfo_Basic_English_1",
+    "VlocityDataPackType": "SObject",
+    "VlocityRecordSObjectType": "OmniProcess",
+    "VlocityRecordSourceKey": "OmniProcess/UserInfo/Basic/English"
+}
