@@ -10,12 +10,18 @@ jobs:
   deploy-vlocity-epc:
     name: Deploy EPC Metadata (PR Validation)
     runs-on: ubuntu-latest
-    container:
-      image: hardisgroupcom/sfdx-hardis:latest
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Salesforce CLI (sf)
+        run: npm install -g @salesforce/cli
 
       - name: Install Vlocity CLI
         run: npm install -g vlocity
