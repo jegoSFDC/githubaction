@@ -10,7 +10,9 @@ jobs:
   deploy-vlocity-epc:
     name: Deploy EPC Metadata (PR Validation)
     runs-on: ubuntu-latest
-
+    container:
+      image: jegojohnson57/sf-pr-validator
+      
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
