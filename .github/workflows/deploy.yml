@@ -74,3 +74,7 @@ jobs:
           else
             echo "epc-deploy.yaml not found. Skipping deployment."
           fi
+      - name: Clean OmniScripts (Keep Last 10 Versions)
+        run: |
+          sfdx vlocityestools:clean:omniscripts -u vlocity-jwt-org -n 10 -p cmt
+
