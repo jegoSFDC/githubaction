@@ -34,6 +34,25 @@ jobs:
       - name: Install Puppeteer globally (for LWC activation)
         run: npm install -g puppeteer
 
+      - name: Install Java (required for PMD)
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Download and extract PMD
+        run: |
+          curl -L -o pmd.zip https://github.com/pmd/pmd/releases/download/pmd_releases%2F6.55.0/pmd-bin-6.55.0.zip
+          unzip pmd.zip -d pmd
+          ls pmd
+
+      - name: Run PMD Static Code Analysis on Apex
+        run: |
+          ./pmd/pmd-bin-6.55.0/bin/run.sh pmd \
+            -d force-app/main/default/classes \
+            -f text \
+            -R apex-security,apex-design
+
       - name: Create JWT Server Key File
         run: echo "${{ secrets.SF_VLOCITYSANDBOX_AUTH_URL }}" > server.key
 
