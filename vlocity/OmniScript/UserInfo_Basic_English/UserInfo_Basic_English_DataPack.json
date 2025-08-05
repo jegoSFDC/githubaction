@@ -13,6 +13,7 @@
         "UserInfo_Basic_English_Element_Step1.json",
         "UserInfo_Basic_English_Element_Enter-Your-Details.json"
     ],
+    
     "OmniProcessType": "OmniScript",
     "PropertySetConfig": "UserInfo_Basic_English_PropertySetConfig.json",
     "SubType": "Basic",
