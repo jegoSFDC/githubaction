@@ -11,7 +11,7 @@ jobs:
     name: Deploy EPC Metadata (PR Validation)
     runs-on: ubuntu-latest
     container:
-      image: jfgarcia268/vlocity_sfdx:latest
+      image: hardisgroupcom/sfdx-hardis:latest
       
     steps:
       - name: Checkout source code
