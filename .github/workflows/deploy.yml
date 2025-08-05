@@ -11,7 +11,7 @@ jobs:
     name: Deploy EPC Metadata (PR Validation)
     runs-on: ubuntu-latest
     container:
-      image: jegojohnson57/sf-pr-validator
+      image: jfgarcia268/vlocity_sfdx:latest
       
     steps:
       - name: Checkout source code
