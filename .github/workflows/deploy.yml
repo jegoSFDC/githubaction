@@ -74,3 +74,11 @@ jobs:
           else
             echo "epc-deploy.yaml not found. Skipping deployment."
           fi
+
+      - name: Run EPC Maintenance Jobs
+        run: |
+          echo "Database.executeBatch(new vlocity_cmt.EPCProductAttribJSONBatchJob());" > maintenance.apex
+          echo "Database.executeBatch(new vlocity_cmt.FixPicklistValuesUpdateJSON());" >> maintenance.apex
+          echo "CMTAdminJobService.startProductHierarchyMaintenanceJob(null);" >> maintenance.apex
+          sf apex run --file maintenance.apex --target-org vlocity-jwt-org
+
