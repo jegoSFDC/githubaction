@@ -27,6 +27,12 @@ jobs:
 
       - name: Install Vlocity CLI
         run: npm install -g vlocity
+        
+      - name: Mark GitHub workspace as safe
+        run: git config --global --add safe.directory /__w/githubaction/githubaction
+
+      - name: Install Puppeteer globally (for LWC activation)
+        run: npm install -g puppeteer
 
       - name: Create JWT Server Key File
         run: echo "${{ secrets.SF_VLOCITYSANDBOX_AUTH_URL }}" > server.key
