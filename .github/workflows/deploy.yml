@@ -11,7 +11,7 @@ jobs:
     name: Deploy EPC Metadata (PR Validation)
     runs-on: ubuntu-latest
     container:
-      image: amtrack/sfdx-cli:latest
+      image: ghcr.io/salesforcecli/sf-cli:latest
 
     steps:
       - name: Checkout source code
