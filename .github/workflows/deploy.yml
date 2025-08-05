@@ -4,16 +4,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
     branches:
-      - main
+      - develop
 
 jobs:
   deploy-vlocity-epc:
     name: Deploy EPC Metadata (PR Validation)
     runs-on: ubuntu-latest
-   # container:
-   #  image: jegojohnson57/sf-pr-validator
-      
+
     steps:
+      - name: Capture Start Time
+        run: echo "PIPELINE_START=$(date +%s)" >> $GITHUB_ENV
+
       - name: Checkout source code
         uses: actions/checkout@v4
 
@@ -27,7 +28,7 @@ jobs:
 
       - name: Install Vlocity CLI
         run: npm install -g vlocity
-        
+
       - name: Mark GitHub workspace as safe
         run: git config --global --add safe.directory /__w/githubaction/githubaction
 
@@ -74,3 +75,30 @@ jobs:
           else
             echo "epc-deploy.yaml not found. Skipping deployment."
           fi
+
+      - name: Report Deployment Status (Success)
+        if: ${{ success() }}
+        run: echo "::notice::dora_deployment_status=success"
+
+      - name: Report Deployment Status (Failure)
+        if: ${{ failure() }}
+        run: echo "::error::dora_deployment_status=failure"
+
+      - name: Generate DORA Metrics Report
+        if: always()
+        run: |
+          END_TIME=$(date +%s)
+          START_TIME=$PIPELINE_START
+          DURATION=$((END_TIME - START_TIME))
+          STATUS="${{ job.status }}"
+          
+          echo "Deployment Duration: $DURATION seconds" > dora-metrics.txt
+          echo "Deployment Status: $STATUS" >> dora-metrics.txt
+          echo "Timestamp: $(date -u)" >> dora-metrics.txt
+
+      - name: Upload DORA Metrics Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dora-metrics-report
+          path: dora-metrics.txt
