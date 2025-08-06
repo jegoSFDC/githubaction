@@ -8,17 +8,20 @@
     "IsTestProcedure": false,
     "IsWebCompEnabled": true,
     "Language": "English",
-    "Name": "User Info Form",
+    "Name": "Get",
     "OmniProcessElement": [
-        "UserInfo_Basic_English_Element_Step1.json",
-        "UserInfo_Basic_English_Element_Enter-Your-Details.json"
+        "User_Info_English_Element_Step1.json",
+        "User_Info_English_Element_Text1.json",
+        "User_Info_English_Element_Text2.json",
+        "User_Info_English_Element_Email1.json",
+        "User_Info_English_Element_Get-info.json"
     ],
     "OmniProcessType": "OmniScript",
-    "PropertySetConfig": "UserInfo_Basic_English_PropertySetConfig.json",
-    "SubType": "Basic",
-    "Type": "UserInfo",
-    "UniqueName": "UserInfo_Basic_English_18",
+    "PropertySetConfig": "User_Info_English_PropertySetConfig.json",
+    "SubType": "Info",
+    "Type": "User",
+    "UniqueName": "User_Info_English_1",
     "VlocityDataPackType": "SObject",
     "VlocityRecordSObjectType": "OmniProcess",
-    "VlocityRecordSourceKey": "OmniProcess/UserInfo/Basic/English"
+    "VlocityRecordSourceKey": "OmniProcess/User/Info/English"
 }

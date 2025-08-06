@@ -3,9 +3,9 @@
     "IsOmniScriptEmbeddable": false,
     "Name": "Step1",
     "OmniProcessId": {
-        "Name": "User Info Form",
+        "Name": "Get",
         "VlocityDataPackType": "VlocityMatchingKeyObject",
-        "VlocityMatchingRecordSourceKey": "OmniProcess/UserInfo/Basic/English",
+        "VlocityMatchingRecordSourceKey": "OmniProcess/User/Info/English",
         "VlocityRecordSObjectType": "OmniProcess"
     },
     "PropertySetConfig": {
@@ -34,7 +34,7 @@
             "remoteTimeout": 30000,
             "typeFilter": ""
         },
-        "label": "User Info Step",
+        "label": "Step 1",
         "message": {
         },
         "nextLabel": "Next",
@@ -61,5 +61,5 @@
     "Type": "Step",
     "VlocityDataPackType": "SObject",
     "VlocityRecordSObjectType": "OmniProcessElement",
-    "VlocityRecordSourceKey": "OmniProcessElement/OmniProcess/UserInfo/Basic/English/Step1"
+    "VlocityRecordSourceKey": "OmniProcessElement/OmniProcess/User/Info/English/Step1"
 }
