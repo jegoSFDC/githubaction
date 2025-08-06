@@ -1,0 +1,26 @@
+{
+    "ElementTypeComponentMapping": "{\"ElementTypeToHTMLTemplateList\":[]}",
+    "IsIntegProcdSignatureAvl": false,
+    "IsIntegrationProcedure": false,
+    "IsManagedUsingStdDesigner": true,
+    "IsMetadataCacheDisabled": false,
+    "IsOmniScriptEmbeddable": false,
+    "IsTestProcedure": false,
+    "IsWebCompEnabled": true,
+    "Language": "English",
+    "Name": "Employee",
+    "OmniProcessElement": [
+        "Name_Detail_English_Element_Step1.json",
+        "Name_Detail_English_Element_Text1.json",
+        "Name_Detail_English_Element_Text2.json",
+        "Name_Detail_English_Element_TextBlock1.json"
+    ],
+    "OmniProcessType": "OmniScript",
+    "PropertySetConfig": "Name_Detail_English_PropertySetConfig.json",
+    "SubType": "Detail",
+    "Type": "Name",
+    "UniqueName": "Name_Detail_English_1",
+    "VlocityDataPackType": "SObject",
+    "VlocityRecordSObjectType": "OmniProcess",
+    "VlocityRecordSourceKey": "OmniProcess/Name/Detail/English"
+}
