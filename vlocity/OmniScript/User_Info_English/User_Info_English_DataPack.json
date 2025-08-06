@@ -1,0 +1,27 @@
+{
+    "ElementTypeComponentMapping": "{\"ElementTypeToHTMLTemplateList\":[]}",
+    "IsIntegProcdSignatureAvl": false,
+    "IsIntegrationProcedure": false,
+    "IsManagedUsingStdDesigner": true,
+    "IsMetadataCacheDisabled": false,
+    "IsOmniScriptEmbeddable": false,
+    "IsTestProcedure": false,
+    "IsWebCompEnabled": true,
+    "Language": "English",
+    "Name": "Get",
+    "OmniProcessElement": [
+        "User_Info_English_Element_Step1.json",
+        "User_Info_English_Element_Text1.json",
+        "User_Info_English_Element_Text2.json",
+        "User_Info_English_Element_Email1.json",
+        "User_Info_English_Element_Get-info.json"
+    ],
+    "OmniProcessType": "OmniScript",
+    "PropertySetConfig": "User_Info_English_PropertySetConfig.json",
+    "SubType": "Info",
+    "Type": "User",
+    "UniqueName": "User_Info_English_1",
+    "VlocityDataPackType": "SObject",
+    "VlocityRecordSObjectType": "OmniProcess",
+    "VlocityRecordSourceKey": "OmniProcess/User/Info/English"
+}

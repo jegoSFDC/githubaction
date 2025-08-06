@@ -1,105 +1,76 @@
-name: Salesforce CI/CD
+name: EPC Deployment on PR
 
 on:
   pull_request:
-    branches:
-      - main
-  push:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
 
 jobs:
-  pr-validation:
-    name: PR Validation
+  deploy-vlocity-epc:
+    name: Deploy EPC Metadata (PR Validation)
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    container: salesforce/salesforcedx:latest-full
-    
+   # container:
+   #  image: jegojohnson57/sf-pr-validator
+      
     steps:
-      - name: Checkout Repository with full history
+      - name: Checkout source code
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
+          node-version: '18'
 
-      - name: Authenticate Salesforce (PR Validation)
-        env:
-          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
-        run: |
-          echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
+      - name: Install Salesforce CLI (sf)
+        run: npm install -g @salesforce/cli
 
-      - name: Create Delta Output Directory
-        run: mkdir -p delta
+      - name: Install Vlocity CLI
+        run: npm install -g vlocity
+        
+      - name: Mark GitHub workspace as safe
+        run: git config --global --add safe.directory /__w/githubaction/githubaction
 
-      - name: Install sfdx-git-delta Plugin
-        run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
+      - name: Install Puppeteer globally (for LWC activation)
+        run: npm install -g puppeteer
 
-      - name: Generate Delta using sfdx-git-delta
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
-
-      - name: Validate Delta Deployment with Specific Test Class
-        run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Delta found. Proceeding with validation..."
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org sandbox \
-              --dry-run \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
-          else
-            echo "No deployable metadata found in delta. Skipping validation."
-          fi
-
-  deploy-to-sandbox:
-    name: Deploy to Sandbox
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    container: salesforce/salesforcedx:latest-full
-
-    steps:
-      - name: Checkout Repository with full history
-        uses: actions/checkout@v4
+      - name: Install Java (required for PMD)
+        uses: actions/setup-java@v3
         with:
-          fetch-depth: 0
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Authenticate Salesforce (Deploy)
-        env:
-          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
+      - name: Download and extract PMD
         run: |
-          echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+          curl -L -o pmd.zip https://github.com/pmd/pmd/releases/download/pmd_releases%2F6.55.0/pmd-bin-6.55.0.zip
+          unzip pmd.zip -d pmd
+          ls pmd
 
-      - name: Create Delta Output Directory
-        run: mkdir -p delta
-
-      - name: Install sfdx-git-delta Plugin
+      - name: Run PMD Static Code Analysis on Apex
         run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
+          ./pmd/pmd-bin-6.55.0/bin/run.sh pmd \
+            -d force-app/main/default/classes \
+            -f text \
+            -R apex-security,apex-design
 
-      - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from HEAD~1 --output delta --generate-delta
+      - name: Create JWT Server Key File
+        run: echo "${{ secrets.SF_VLOCITYSANDBOX_AUTH_URL }}" > server.key
 
-      - name: Deploy Delta to Sandbox with Specific Test Class
+      - name: Authenticate Salesforce via JWT
         run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Deployable delta found. Deploying..."
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org sandbox \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
+          sf org login jwt \
+            --client-id ${{ secrets.SF_CLIENT_ID }} \
+            --jwt-key-file server.key \
+            --username ${{ secrets.SF_USERNAME }} \
+            --instance-url ${{ secrets.SF_LOGIN_URL }} \
+            --set-default \
+            --alias vlocity-jwt-org
+
+      - name: Run Vlocity EPC Deployment
+        run: |
+          if [ -f "epc-deploy.yaml" ]; then
+            echo "Running EPC Vlocity Deployment..."
+            vlocity -job epc-deploy.yaml -sfdx.username "${{ secrets.SF_USERNAME }}" packDeploy
           else
-            echo "No deployable metadata found. Skipping deployment."
+            echo "epc-deploy.yaml not found. Skipping deployment."
           fi

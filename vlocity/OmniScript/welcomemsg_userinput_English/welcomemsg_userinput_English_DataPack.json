@@ -1,0 +1,26 @@
+{
+    "ElementTypeComponentMapping": "{\"ElementTypeToHTMLTemplateList\":[]}",
+    "IsIntegProcdSignatureAvl": false,
+    "IsIntegrationProcedure": false,
+    "IsManagedUsingStdDesigner": true,
+    "IsMetadataCacheDisabled": false,
+    "IsOmniScriptEmbeddable": false,
+    "IsTestProcedure": false,
+    "IsWebCompEnabled": true,
+    "Language": "English",
+    "Name": "Simple",
+    "OmniProcessElement": [
+        "welcomemsg_userinput_English_Element_Step1.json",
+        "welcomemsg_userinput_English_Element_Text1.json",
+        "welcomemsg_userinput_English_Element_Text2.json",
+        "welcomemsg_userinput_English_Element_Greeting.json"
+    ],
+    "OmniProcessType": "OmniScript",
+    "PropertySetConfig": "welcomemsg_userinput_English_PropertySetConfig.json",
+    "SubType": "userinput",
+    "Type": "welcomemsg",
+    "UniqueName": "welcomemsg_userinput_English_1",
+    "VlocityDataPackType": "SObject",
+    "VlocityRecordSObjectType": "OmniProcess",
+    "VlocityRecordSourceKey": "OmniProcess/welcomemsg/userinput/English"
+}

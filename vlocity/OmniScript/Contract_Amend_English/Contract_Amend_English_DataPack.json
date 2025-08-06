@@ -1,0 +1,21 @@
+{
+    "ElementTypeComponentMapping": "{\"ElementTypeToHTMLTemplateList\":[]}",
+    "IsIntegProcdSignatureAvl": false,
+    "IsIntegrationProcedure": false,
+    "IsManagedUsingStdDesigner": true,
+    "IsMetadataCacheDisabled": false,
+    "IsOmniScriptEmbeddable": false,
+    "IsTestProcedure": false,
+    "IsWebCompEnabled": true,
+    "Language": "English",
+    "Name": "Test",
+    "OmniProcessElement": "Contract_Amend_English_Element_Step1.json",
+    "OmniProcessType": "OmniScript",
+    "PropertySetConfig": "Contract_Amend_English_PropertySetConfig.json",
+    "SubType": "Amend",
+    "Type": "Contract",
+    "UniqueName": "Contract_Amend_English_1",
+    "VlocityDataPackType": "SObject",
+    "VlocityRecordSObjectType": "OmniProcess",
+    "VlocityRecordSourceKey": "OmniProcess/Contract/Amend/English"
+}

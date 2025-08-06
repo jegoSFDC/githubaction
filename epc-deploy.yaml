@@ -1,0 +1,7 @@
+projectPath: ./vlocity
+gitCheck: true
+compileOnDeploy: true
+compileOnBuild: true
+autoUpdateSettings: true
+autoRetryErrors: true
+activate: true
