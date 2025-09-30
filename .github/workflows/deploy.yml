@@ -117,14 +117,47 @@ jobs:
           echo "🔍 Static Code Analysis Results:"
           echo "=================================="
           
-          # Display Apex results
+          # Debug JSON structure first
+          echo "📋 Debug: Checking JSON structure..."
+          if [ -f "reports/apex.json" ]; then
+            echo "Apex JSON keys:"
+            cat reports/apex.json | jq 'keys' 2>/dev/null || echo "Cannot parse JSON"
+            echo "Apex JSON structure sample:"
+            cat reports/apex.json | jq '. | keys_unsorted' 2>/dev/null || echo "Cannot parse JSON"
+          fi
+          
+          if [ -f "reports/lwc.json" ]; then
+            echo "LWC JSON keys:"
+            cat reports/lwc.json | jq 'keys' 2>/dev/null || echo "Cannot parse JSON"
+          fi
+          
+          echo ""
+          
+          # Display Apex results with correct parsing
           if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
             echo "📊 Apex Analysis Results:"
-            APEX_VIOLATIONS=$(cat reports/apex.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
+            
+            # Try different JSON structure paths
+            APEX_VIOLATIONS_V1=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
+            APEX_VIOLATIONS_V2=$(cat reports/apex.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
+            APEX_VIOLATIONS_V3=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
+            APEX_VIOLATIONS_V4=$(cat reports/apex.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
+            
+            # Use the highest non-zero value
+            APEX_VIOLATIONS=$APEX_VIOLATIONS_V1
+            if [ $APEX_VIOLATIONS_V2 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V2; fi
+            if [ $APEX_VIOLATIONS_V3 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V3; fi
+            if [ $APEX_VIOLATIONS_V4 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V4; fi
+            
+            echo "Raw counts: v1=$APEX_VIOLATIONS_V1 v2=$APEX_VIOLATIONS_V2 v3=$APEX_VIOLATIONS_V3 v4=$APEX_VIOLATIONS_V4"
+            
             if [ $APEX_VIOLATIONS -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               echo "High Priority Issues:"
-              cat reports/apex.json | jq -r '.result[] | select(.severity <= 3) | "  • \(.file) - \(.ruleName): \(.message)"' 2>/dev/null | head -10 || echo "Check reports/apex.json for details"
+              # Try different paths for violation details
+              cat reports/apex.json | jq -r '.result[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -10 || \
+              cat reports/apex.json | jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -10 || \
+              echo "Check reports/apex.json for details"
             else
               echo "✅ No Apex violations found!"
             fi
@@ -134,14 +167,31 @@ jobs:
           
           echo ""
           
-          # Display LWC results
+          # Display LWC results with correct parsing
           if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
             echo "📊 LWC Analysis Results:"
-            LWC_VIOLATIONS=$(cat reports/lwc.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
+            
+            # Try different JSON structure paths
+            LWC_VIOLATIONS_V1=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
+            LWC_VIOLATIONS_V2=$(cat reports/lwc.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
+            LWC_VIOLATIONS_V3=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
+            LWC_VIOLATIONS_V4=$(cat reports/lwc.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
+            
+            # Use the highest non-zero value
+            LWC_VIOLATIONS=$LWC_VIOLATIONS_V1
+            if [ $LWC_VIOLATIONS_V2 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V2; fi
+            if [ $LWC_VIOLATIONS_V3 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V3; fi
+            if [ $LWC_VIOLATIONS_V4 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V4; fi
+            
+            echo "Raw counts: v1=$LWC_VIOLATIONS_V1 v2=$LWC_VIOLATIONS_V2 v3=$LWC_VIOLATIONS_V3 v4=$LWC_VIOLATIONS_V4"
+            
             if [ $LWC_VIOLATIONS -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               echo "Key Issues:"
-              cat reports/lwc.json | jq -r '.result[] | select(.severity <= 3) | "  • \(.file) - \(.ruleName): \(.message)"' 2>/dev/null | head -5 || echo "Check reports/lwc.json for details"
+              # Try different paths for violation details
+              cat reports/lwc.json | jq -r '.result[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -5 || \
+              cat reports/lwc.json | jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -5 || \
+              echo "Check reports/lwc.json for details"
             else
               echo "✅ No LWC violations found!"
             fi
@@ -229,13 +279,24 @@ jobs:
             fi
             echo ""
             
-            # Static Code Analysis Summary
+            # Static Code Analysis Summary - FIXED PARSING
             echo "🔍 Static Code Analysis"
             APEX_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
             if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
-              APEX_VIOLATIONS=$(cat reports/apex.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
+              # Try multiple JSON structure patterns
+              APEX_VIOLATIONS_V1=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
+              APEX_VIOLATIONS_V2=$(cat reports/apex.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
+              APEX_VIOLATIONS_V3=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
+              APEX_VIOLATIONS_V4=$(cat reports/apex.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
+              
+              # Use the highest non-zero value
+              APEX_VIOLATIONS=$APEX_VIOLATIONS_V1
+              if [ $APEX_VIOLATIONS_V2 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V2; fi
+              if [ $APEX_VIOLATIONS_V3 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V3; fi
+              if [ $APEX_VIOLATIONS_V4 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V4; fi
+              
               if [ $APEX_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
@@ -246,7 +307,18 @@ jobs:
             fi
             
             if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
-              LWC_VIOLATIONS=$(cat reports/lwc.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
+              # Try multiple JSON structure patterns
+              LWC_VIOLATIONS_V1=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
+              LWC_VIOLATIONS_V2=$(cat reports/lwc.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
+              LWC_VIOLATIONS_V3=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
+              LWC_VIOLATIONS_V4=$(cat reports/lwc.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
+              
+              # Use the highest non-zero value
+              LWC_VIOLATIONS=$LWC_VIOLATIONS_V1
+              if [ $LWC_VIOLATIONS_V2 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V2; fi
+              if [ $LWC_VIOLATIONS_V3 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V3; fi
+              if [ $LWC_VIOLATIONS_V4 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V4; fi
+              
               if [ $LWC_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
