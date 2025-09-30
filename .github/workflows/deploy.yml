@@ -42,9 +42,16 @@ jobs:
 
       - name: Generate Delta Package
         run: |
+          # Create delta directory (CRITICAL FIX)
+          mkdir -p delta
+          
           BASE=origin/${{ github.event.pull_request.base.ref }}
           HEAD=${{ github.event.pull_request.head.sha }}
           echo "Comparing $BASE -> $HEAD"
+          
+          # Fetch base branch for comparison
+          git fetch origin ${{ github.event.pull_request.base.ref }} --no-tags --prune || true
+          
           sf sgd source delta \
             --from "$BASE" \
             --to "$HEAD" \
@@ -147,7 +154,12 @@ jobs:
 
       - name: Generate Delta Package
         run: |
+          # Create delta directory (CRITICAL FIX)
+          mkdir -p delta
+          
           echo "Comparing HEAD~1 -> HEAD"
+          git fetch origin main --no-tags --prune || true
+          
           sf sgd source delta \
             --from HEAD~1 \
             --to HEAD \
