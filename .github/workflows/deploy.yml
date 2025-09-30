@@ -52,13 +52,14 @@ jobs:
           # Fetch base branch for comparison
           git fetch origin ${{ github.event.pull_request.base.ref }} --no-tags --prune || true
           
+          # Use explicit source directory for better metadata detection
           sf sgd source delta \
             --from "$BASE" \
             --to "$HEAD" \
             --output delta \
             --generate-delta \
             -a 58.0 \
-            -s force-app/
+            -s force-app/main/default
 
       - name: Debug Delta Contents
         run: |
@@ -70,12 +71,15 @@ jobs:
           echo ""
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
+          echo ""
+          echo "=== Git Diff for Debug ==="
+          git diff --name-only origin/${{ github.event.pull_request.base.ref }} ${{ github.event.pull_request.head.sha }} || true
 
       - name: Run PMD Static Analysis
         uses: pmd/pmd-github-action@v2
         with:
           rulesets: 'rulesets/apex/security.xml'
-          sourcePath: 'force-app'
+          sourcePath: 'force-app/main/default'
           analyzeModifiedFilesOnly: true
 
       - name: Validate Delta Deployment (dry-run)
@@ -160,13 +164,14 @@ jobs:
           echo "Comparing HEAD~1 -> HEAD"
           git fetch origin main --no-tags --prune || true
           
+          # Use explicit source directory for better metadata detection
           sf sgd source delta \
             --from HEAD~1 \
             --to HEAD \
             --output delta \
             --generate-delta \
             -a 58.0 \
-            -s force-app/
+            -s force-app/main/default
 
       - name: Debug Delta Contents
         run: |
@@ -178,6 +183,9 @@ jobs:
           echo ""
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
+          echo ""
+          echo "=== Git Diff for Debug ==="
+          git diff --name-only HEAD~1 HEAD || true
 
       - name: Deploy Delta to Sandbox
         run: |
