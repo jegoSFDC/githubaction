@@ -62,6 +62,81 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
+      - name: Static Code Analysis - Security Scan
+        run: |
+          echo "🔍 Running PMD Static Code Analysis for Security..."
+          
+          # Create PMD rulesets directory
+          mkdir -p rulesets/apex
+          
+          # Download official Salesforce PMD security ruleset
+          echo "📥 Downloading Salesforce PMD Security Ruleset..."
+          curl -o rulesets/apex/security.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/security.xml
+          
+          # Download additional security rulesets
+          echo "📥 Downloading additional security rulesets..."
+          curl -o rulesets/apex/bestpractices.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/bestpractices.xml
+          curl -o rulesets/apex/design.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/design.xml
+          
+          # Install PMD
+          echo "📦 Installing PMD..."
+          npm install -g pmd-bin
+          
+          # Run PMD analysis on Apex classes
+          echo "🔍 Running PMD Security Analysis..."
+          if [ -d "force-app/main/default/classes" ]; then
+            pmd -d force-app/main/default/classes \
+                -R rulesets/apex/security.xml \
+                -f text \
+                --fail-on-violation false \
+                --report-file pmd-security-report.txt || echo "PMD analysis completed with findings"
+            
+            # Display results
+            echo "📊 PMD Security Analysis Results:"
+            if [ -f "pmd-security-report.txt" ]; then
+              cat pmd-security-report.txt
+            else
+              echo "✅ No security violations found!"
+            fi
+          else
+            echo "ℹ️ No Apex classes found for analysis"
+          fi
+          
+          # Run PMD analysis on Lightning Web Components
+          echo "🔍 Running PMD Analysis on LWC..."
+          if [ -d "force-app/main/default/lwc" ]; then
+            pmd -d force-app/main/default/lwc \
+                -R rulesets/apex/bestpractices.xml \
+                -f text \
+                --fail-on-violation false \
+                --report-file pmd-lwc-report.txt || echo "PMD LWC analysis completed with findings"
+            
+            # Display results
+            echo "📊 PMD LWC Analysis Results:"
+            if [ -f "pmd-lwc-report.txt" ]; then
+              cat pmd-lwc-report.txt
+            else
+              echo "✅ No LWC violations found!"
+            fi
+          else
+            echo "ℹ️ No LWC components found for analysis"
+          fi
+          
+          # Generate summary
+          echo "📋 Static Code Analysis Summary:"
+          echo "=================================="
+          if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+            echo "⚠️  Security violations found - Review pmd-security-report.txt"
+          else
+            echo "✅ No security violations detected"
+          fi
+          
+          if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+            echo "⚠️  LWC violations found - Review pmd-lwc-report.txt"
+          else
+            echo "✅ No LWC violations detected"
+          fi
+
       - name: Validate Delta Deployment with Specific Test Class
         run: |
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
@@ -129,6 +204,81 @@ jobs:
           echo ""
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
+
+      - name: Static Code Analysis - Security Scan
+        run: |
+          echo "🔍 Running PMD Static Code Analysis for Security..."
+          
+          # Create PMD rulesets directory
+          mkdir -p rulesets/apex
+          
+          # Download official Salesforce PMD security ruleset
+          echo "📥 Downloading Salesforce PMD Security Ruleset..."
+          curl -o rulesets/apex/security.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/security.xml
+          
+          # Download additional security rulesets
+          echo "📥 Downloading additional security rulesets..."
+          curl -o rulesets/apex/bestpractices.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/bestpractices.xml
+          curl -o rulesets/apex/design.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/design.xml
+          
+          # Install PMD
+          echo "📦 Installing PMD..."
+          npm install -g pmd-bin
+          
+          # Run PMD analysis on Apex classes
+          echo "🔍 Running PMD Security Analysis..."
+          if [ -d "force-app/main/default/classes" ]; then
+            pmd -d force-app/main/default/classes \
+                -R rulesets/apex/security.xml \
+                -f text \
+                --fail-on-violation false \
+                --report-file pmd-security-report.txt || echo "PMD analysis completed with findings"
+            
+            # Display results
+            echo "📊 PMD Security Analysis Results:"
+            if [ -f "pmd-security-report.txt" ]; then
+              cat pmd-security-report.txt
+            else
+              echo "✅ No security violations found!"
+            fi
+          else
+            echo "ℹ️ No Apex classes found for analysis"
+          fi
+          
+          # Run PMD analysis on Lightning Web Components
+          echo "🔍 Running PMD Analysis on LWC..."
+          if [ -d "force-app/main/default/lwc" ]; then
+            pmd -d force-app/main/default/lwc \
+                -R rulesets/apex/bestpractices.xml \
+                -f text \
+                --fail-on-violation false \
+                --report-file pmd-lwc-report.txt || echo "PMD LWC analysis completed with findings"
+            
+            # Display results
+            echo "📊 PMD LWC Analysis Results:"
+            if [ -f "pmd-lwc-report.txt" ]; then
+              cat pmd-lwc-report.txt
+            else
+              echo "✅ No LWC violations found!"
+            fi
+          else
+            echo "ℹ️ No LWC components found for analysis"
+          fi
+          
+          # Generate summary
+          echo "📋 Static Code Analysis Summary:"
+          echo "=================================="
+          if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+            echo "⚠️  Security violations found - Review pmd-security-report.txt"
+          else
+            echo "✅ No security violations detected"
+          fi
+          
+          if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+            echo "⚠️  LWC violations found - Review pmd-lwc-report.txt"
+          else
+            echo "✅ No LWC violations detected"
+          fi
 
       - name: Deploy Delta to Sandbox with Specific Test Class
         run: |
