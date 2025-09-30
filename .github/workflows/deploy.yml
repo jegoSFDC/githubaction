@@ -13,7 +13,6 @@ jobs:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    container: salesforce/salesforcedx:latest-full
     
     steps:
       - name: Checkout Repository with full history
@@ -21,26 +20,36 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node & Salesforce CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Salesforce CLI
+        run: |
+          npm install -g @salesforce/cli
+          sf --version
+
       - name: Authenticate Salesforce (PR Validation)
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
+          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
       - name: Create Delta Output Directory
         run: mkdir -p delta
 
       - name: Install sfdx-git-delta Plugin
         run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
+          echo y | sf plugins install sfdx-git-delta
+          sf plugins --core
 
       - name: Generate Delta using sfdx-git-delta
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
+          sf sgd source delta --to HEAD --from origin/main --output delta --generate-delta
 
       - name: Validate Delta Deployment with Specific Test Class
         run: |
@@ -61,13 +70,22 @@ jobs:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    container: salesforce/salesforcedx:latest-full
 
     steps:
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup Node & Salesforce CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Salesforce CLI
+        run: |
+          npm install -g @salesforce/cli
+          sf --version
 
       - name: Authenticate Salesforce (Deploy)
         env:
@@ -81,14 +99,14 @@ jobs:
 
       - name: Install sfdx-git-delta Plugin
         run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
+          echo y | sf plugins install sfdx-git-delta
+          sf plugins --core
 
       - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from HEAD~1 --output delta --generate-delta
+          sf sgd source delta --to HEAD --from HEAD~1 --output delta --generate-delta
 
       - name: Deploy Delta to Sandbox with Specific Test Class
         run: |
