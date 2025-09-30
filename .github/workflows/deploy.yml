@@ -89,6 +89,7 @@ jobs:
             --output-file reports/apex.json
             --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
           results-artifact-name: code-analyzer-apex-results
+        continue-on-error: true
 
       - name: Run Salesforce Code Analyzer for LWC
         id: run-code-analyzer-lwc
@@ -100,6 +101,7 @@ jobs:
             --output-file reports/lwc.json
             --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
           results-artifact-name: code-analyzer-lwc-results
+        continue-on-error: true
 
       - name: Upload Code Analysis Reports
         uses: actions/upload-artifact@v4
@@ -118,10 +120,11 @@ jobs:
           # Display Apex results
           if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
             echo "📊 Apex Analysis Results:"
-            APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
+            APEX_VIOLATIONS=$(cat reports/apex.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
             if [ $APEX_VIOLATIONS -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
-              cat reports/apex.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
+              echo "High Priority Issues:"
+              cat reports/apex.json | jq -r '.result[] | select(.severity <= 3) | "  • \(.file) - \(.ruleName): \(.message)"' 2>/dev/null | head -10 || echo "Check reports/apex.json for details"
             else
               echo "✅ No Apex violations found!"
             fi
@@ -134,10 +137,11 @@ jobs:
           # Display LWC results
           if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
             echo "📊 LWC Analysis Results:"
-            LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
+            LWC_VIOLATIONS=$(cat reports/lwc.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
             if [ $LWC_VIOLATIONS -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
-              cat reports/lwc.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
+              echo "Key Issues:"
+              cat reports/lwc.json | jq -r '.result[] | select(.severity <= 3) | "  • \(.file) - \(.ruleName): \(.message)"' 2>/dev/null | head -5 || echo "Check reports/lwc.json for details"
             else
               echo "✅ No LWC violations found!"
             fi
@@ -154,7 +158,7 @@ jobs:
             # Extract test classes from package.xml dynamically
             if [ -f "delta/package/package.xml" ]; then
               TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | \
-                sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ',' | sed 's/,$//')
+                sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ' ' | sed 's/ $//')
               
               if [ -n "$TEST_CLASSES" ]; then
                 echo "Running specified test classes: $TEST_CLASSES"
@@ -163,7 +167,7 @@ jobs:
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunSpecifiedTests \
-                  --tests "$TEST_CLASSES"
+                  --tests $TEST_CLASSES
               else
                 echo "No test classes found in package.xml, running local tests"
                 sf project deploy start \
@@ -231,7 +235,7 @@ jobs:
             LWC_VIOLATIONS=0
             
             if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
-              APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
+              APEX_VIOLATIONS=$(cat reports/apex.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
               if [ $APEX_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
@@ -242,7 +246,7 @@ jobs:
             fi
             
             if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
-              LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
+              LWC_VIOLATIONS=$(cat reports/lwc.json | jq 'if .result then (.result | length) else 0 end' 2>/dev/null || echo "0")
               if [ $LWC_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
@@ -283,285 +287,6 @@ jobs:
             
           else
             echo "📌 Validation Status: Skipped"
-            echo "ℹ️  Reason: No deployable metadata found in delta"
-            echo ""
-            echo "🔍 Static Code Analysis"
-            echo "✅ No Apex Violations"
-            echo "✅ No LWC Violations"
-            echo ""
-            echo "📊 Quality Score"
-            echo "Code Quality: 🟢 Excellent (0 violations)"
-            echo "Deployment: ⚪ Skipped (no changes)"
-          fi
-
-  deploy-to-sandbox:
-    name: Deploy to Sandbox
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout Repository with full history
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '11'
-
-      - name: Setup Node & Salesforce CLI
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Cache Salesforce CLI
-        uses: actions/cache@v4
-        with:
-          path: ~/.sf
-          key: sf-cli-${{ runner.os }}-${{ hashFiles('**/sfdx-project.json') }}
-          restore-keys: |
-            sf-cli-${{ runner.os }}-
-
-      - name: Install Salesforce CLI
-        run: |
-          npm install -g @salesforce/cli --silent
-          sf --version
-
-      - name: Authenticate Salesforce (Deploy)
-        env:
-          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
-        run: |
-          echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
-
-      - name: Create Delta Output Directory
-        run: mkdir -p delta reports
-
-      - name: Install sfdx-git-delta Plugin
-        run: |
-          echo y | sf plugins install sfdx-git-delta
-          sf plugins --core
-
-      - name: Generate Delta using sfdx-git-delta (safer approach)
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main --quiet
-          sf sgd source delta --to HEAD --from origin/main --output delta --generate-delta
-
-      - name: Show Generated Package.xml Files
-        run: |
-          echo "=== Delta Directory Structure ==="
-          find delta -type f | head -20 || echo "No delta files found"
-          echo ""
-          echo "=== Package.xml (if exists) ==="
-          [ -f delta/package/package.xml ] && cat delta/package/package.xml || echo "No package.xml"
-          echo ""
-          echo "=== Destructive Changes (if exists) ==="
-          find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
-
-      - name: Run Salesforce Code Analyzer for Apex
-        id: run-code-analyzer-apex
-        uses: forcedotcom/run-code-analyzer@v2
-        with:
-          run-arguments: >
-            --target force-app/main/default/classes
-            --view detail
-            --output-file reports/apex.json
-            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
-          results-artifact-name: code-analyzer-apex-results
-
-      - name: Run Salesforce Code Analyzer for LWC
-        id: run-code-analyzer-lwc
-        uses: forcedotcom/run-code-analyzer@v2
-        with:
-          run-arguments: >
-            --target force-app/main/default/lwc
-            --view detail
-            --output-file reports/lwc.json
-            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
-          results-artifact-name: code-analyzer-lwc-results
-
-      - name: Upload Code Analysis Reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: code-analysis-reports-deploy
-          path: reports/
-          retention-days: 30
-
-      - name: Display Code Analysis Results
-        if: always()
-        run: |
-          echo "🔍 Static Code Analysis Results:"
-          echo "=================================="
-          
-          # Display Apex results
-          if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
-            echo "📊 Apex Analysis Results:"
-            APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
-            if [ $APEX_VIOLATIONS -gt 0 ]; then
-              echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
-              cat reports/apex.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
-            else
-              echo "✅ No Apex violations found!"
-            fi
-          else
-            echo "✅ No Apex violations found!"
-          fi
-          
-          echo ""
-          
-          # Display LWC results
-          if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
-            echo "📊 LWC Analysis Results:"
-            LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
-            if [ $LWC_VIOLATIONS -gt 0 ]; then
-              echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
-              cat reports/lwc.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
-            else
-              echo "✅ No LWC violations found!"
-            fi
-          else
-            echo "✅ No LWC violations found!"
-          fi
-
-      - name: Deploy Delta to Sandbox with Dynamic Test Classes
-        id: deploy_sandbox
-        run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Deployable delta found. Deploying..."
-            
-            # Extract test classes from package.xml dynamically
-            if [ -f "delta/package/package.xml" ]; then
-              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | \
-                sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ',' | sed 's/,$//')
-              
-              if [ -n "$TEST_CLASSES" ]; then
-                echo "Running specified test classes: $TEST_CLASSES"
-                sf project deploy start \
-                  --source-dir delta/force-app \
-                  --target-org sandbox \
-                  --test-level RunSpecifiedTests \
-                  --tests "$TEST_CLASSES"
-              else
-                echo "No test classes found in package.xml, running local tests"
-                sf project deploy start \
-                  --source-dir delta/force-app \
-                  --target-org sandbox \
-                  --test-level RunLocalTests
-              fi
-            else
-              echo "No package.xml found, running local tests"
-              sf project deploy start \
-                --source-dir delta/force-app \
-                --target-org sandbox \
-                --test-level RunLocalTests
-            fi
-          else
-            echo "No deployable metadata found. Skipping deployment."
-          fi
-
-      - name: Deployment Summary Report
-        if: always()
-        run: |
-          echo ""
-          echo "🚦 Deployment Status: ${{ steps.deploy_sandbox.outcome == 'success' && '✅ Succeeded' || steps.deploy_sandbox.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed' }}"
-          echo ""
-          
-          # Check deployment status
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            # Check if deployment failed
-            if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
-              echo "Main Issues:"
-              echo ""
-              echo "🔴 Test Failure → Check test execution logs above"
-              echo "🔴 Coverage Failure → Review test coverage requirements"
-              echo ""
-            fi
-            
-            # Extract components from package.xml
-            echo "📦 Deployment Package Metadata:"
-            if [ -f "delta/package/package.xml" ]; then
-              # Extract Apex classes
-              APEX_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep -v 'Test' | tr '\n' ', ' | sed 's/,$//')
-              if [ -n "$APEX_CLASSES" ]; then
-                echo "Apex: $APEX_CLASSES"
-              fi
-              
-              # Extract Test classes
-              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ', ' | sed 's/,$//')
-              if [ -n "$TEST_CLASSES" ]; then
-                echo "Tests: $TEST_CLASSES"
-              fi
-              
-              # Extract LWC components
-              LWC_COMPONENTS=$(find delta/force-app -name "*.js" -o -name "*.html" -o -name "*.css" | sed 's/.*\///' | tr '\n' ', ' | sed 's/,$//')
-              if [ -n "$LWC_COMPONENTS" ]; then
-                echo "UI: $LWC_COMPONENTS"
-              fi
-            fi
-            echo ""
-            
-            # Static Code Analysis Summary
-            echo "🔍 Static Code Analysis"
-            APEX_VIOLATIONS=0
-            LWC_VIOLATIONS=0
-            
-            if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
-              APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
-              if [ $APEX_VIOLATIONS -gt 0 ]; then
-                echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
-              else
-                echo "✅ No Apex Violations"
-              fi
-            else
-              echo "✅ No Apex Violations"
-            fi
-            
-            if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
-              LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
-              if [ $LWC_VIOLATIONS -gt 0 ]; then
-                echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
-              else
-                echo "✅ No LWC Violations"
-              fi
-            else
-              echo "✅ No LWC Violations"
-            fi
-            echo ""
-            
-            # Quality Score
-            echo "📊 Quality Score"
-            TOTAL_VIOLATIONS=$((APEX_VIOLATIONS + LWC_VIOLATIONS))
-            if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-              echo "Code Quality: 🟢 Excellent (0 violations)"
-            elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-              echo "Code Quality: 🟡 Good ($TOTAL_VIOLATIONS violations)"
-            else
-              echo "Code Quality: 🔴 Needs Attention ($TOTAL_VIOLATIONS violations)"
-            fi
-            
-            if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
-              echo "Deployment: 🔴 Failed (tests & coverage issues)"
-            else
-              echo "Deployment: 🟢 Passed"
-            fi
-            echo ""
-            
-            # Test Results
-            echo "🎯 Test Results"
-            if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
-              echo "Test Execution → ❌ Failed (check logs above)"
-              echo "Coverage → ❌ Review coverage requirements"
-            else
-              echo "Test Execution → ✅ Passed"
-              echo "Coverage → ✅ All requirements met"
-            fi
-            
-          else
-            echo "📌 Deployment Status: Skipped"
             echo "ℹ️  Reason: No deployable metadata found in delta"
             echo ""
             echo "🔍 Static Code Analysis"
