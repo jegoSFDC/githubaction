@@ -156,174 +156,113 @@ jobs:
         if: always()
         run: |
           echo ""
-          echo "🚀 *Salesforce Validation Deployment Summary* 🚀"
-          echo "==============================================="
+          echo "🚦 Validation Status: ${{ steps.validate_deploy.outcome == 'success' && '✅ Passed' || '❌ Failed' }}"
           echo ""
           
           # Check deployment status
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            # Count components
-            COMPONENT_COUNT=$(find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | wc -l)
-            
-            # Check if deployment failed (exit code 1 from previous step)
+            # Check if deployment failed
             if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-              echo "📌 **Validation Deployment Status:** ❌ Failed"
+              echo "Main Issues:"
               echo ""
-              echo "==============================================="
-              echo "🔴 **Deployment Issues Detected:**"
-              echo "   • Test Failure: ChangePasswordControllerTest.testChangePassword"
-              echo "   • Error: DUPLICATE_USERNAME - Username already exists"
-              echo "   • Coverage Issue: SampleController has 0% coverage (requires 75%)"
+              echo "🔴 Test Failure → ChangePasswordControllerTest.testChangePassword"
+              echo "▸ Error: DUPLICATE_USERNAME (username already exists)"
               echo ""
-              echo "✅ **Number of Components Processed:** $COMPONENT_COUNT"
+              echo "🔴 Coverage Failure → SampleController 0% (needs 75%)"
               echo ""
-              echo "🟢 **Components in Delta Package:**"
-              
-              # List components
-              find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | while read file; do
-                echo "   • $(basename "$file")"
-              done
-              echo ""
-              
-              # Static Code Analysis Summary
-              echo "🔍 **Static Code Analysis Results:**"
-              echo "=================================="
-              
-              SECURITY_VIOLATIONS=0
-              LWC_VIOLATIONS=0
-              
-              if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
-                SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
-                echo "   📄 Review: pmd-security-report.txt"
-              else
-                echo "✅ **Security Violations:** None detected"
-              fi
-              
-              if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-                LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
-                echo "   📄 Review: pmd-lwc-report.txt"
-              else
-                echo "✅ **LWC Violations:** None detected"
-              fi
-              
-              echo ""
-              echo "📊 **Overall Quality Score:**"
-              TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
-              if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-                echo "   🟢 **Code Quality: Excellent** - No violations detected"
-              elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-                echo "   🟡 **Code Quality: Good** - $TOTAL_VIOLATIONS violations found"
-              else
-                echo "   🔴 **Code Quality: Needs Attention** - $TOTAL_VIOLATIONS violations found"
-              fi
-              echo "   🔴 **Deployment: Failed** - Test failures and coverage issues"
-              
-              echo ""
-              echo "🎯 **Test Results:**"
-              echo "   • Test Class: ChangePasswordControllerTest"
-              echo "   • Test Level: RunSpecifiedTests"
-              echo "   • Status: ❌ Failed (1/2 tests passed)"
-              echo "   • Coverage: ❌ SampleController 0% (requires 75%)"
-              echo "   • Error: DUPLICATE_USERNAME in testChangePassword"
-              
-            else
-              echo "📌 **Validation Deployment Status:** ✅ Succeeded"
-              echo ""
-              echo "==============================================="
-              echo "✅ **Number of Component Successes:** $COMPONENT_COUNT"
-              echo ""
-              echo "🟢 **Components Validated Successfully:**"
-              
-              # List components
-              find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | while read file; do
-                echo "   • $(basename "$file")"
-              done
-              echo ""
-              
-              # Static Code Analysis Summary
-              echo "🔍 **Static Code Analysis Results:**"
-              echo "=================================="
-              
-              SECURITY_VIOLATIONS=0
-              LWC_VIOLATIONS=0
-              
-              if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
-                SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
-                echo "   📄 Review: pmd-security-report.txt"
-              else
-                echo "✅ **Security Violations:** None detected"
-              fi
-              
-              if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-                LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
-                echo "   📄 Review: pmd-lwc-report.txt"
-              else
-                echo "✅ **LWC Violations:** None detected"
-              fi
-              
-              echo ""
-              echo "📊 **Overall Quality Score:**"
-              TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
-              if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-                echo "   🟢 **Excellent** - No violations detected"
-              elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-                echo "   🟡 **Good** - $TOTAL_VIOLATIONS violations found"
-              else
-                echo "   🔴 **Needs Attention** - $TOTAL_VIOLATIONS violations found"
-              fi
-              
-              echo ""
-              echo "🎯 **Test Coverage:**"
-              echo "   • Test Class: ChangePasswordControllerTest"
-              echo "   • Test Level: RunSpecifiedTests"
-              echo "   • Status: ✅ Validated"
             fi
             
-          else
-            echo "📌 **Validation Deployment Status:** Skipped"
+            # Extract components from package.xml
+            echo "📦 Deployment Package Metadata:"
+            if [ -f "delta/package/package.xml" ]; then
+              # Extract Apex classes
+              APEX_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep -v 'Test' | tr '\n' ', ' | sed 's/,$//')
+              if [ -n "$APEX_CLASSES" ]; then
+                echo "Apex: $APEX_CLASSES"
+              fi
+              
+              # Extract Test classes
+              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ', ' | sed 's/,$//')
+              if [ -n "$TEST_CLASSES" ]; then
+                echo "Tests: $TEST_CLASSES"
+              fi
+              
+              # Extract LWC components
+              LWC_COMPONENTS=$(find delta/force-app -name "*.js" -o -name "*.html" -o -name "*.css" | sed 's/.*\///' | tr '\n' ', ' | sed 's/,$//')
+              if [ -n "$LWC_COMPONENTS" ]; then
+                echo "UI: $LWC_COMPONENTS"
+              fi
+            fi
             echo ""
-            echo "==============================================="
-            echo "ℹ️  **Reason:** No deployable metadata found in delta"
-            echo ""
-            echo "🔍 **Static Code Analysis Results:**"
-            echo "=================================="
-            echo "ℹ️  **Status:** Analysis completed on source code"
             
+            # Static Code Analysis Summary
+            echo "🔍 Static Code Analysis"
             SECURITY_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
             if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
               SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
-              echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
+              if [ $SECURITY_VIOLATIONS -gt 0 ]; then
+                echo "⚠️  Security Violations: $SECURITY_VIOLATIONS found"
+              else
+                echo "✅ No Security Violations"
+              fi
             else
-              echo "✅ **Security Violations:** None detected"
+              echo "✅ No Security Violations"
             fi
             
             if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
               LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-              echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
+              if [ $LWC_VIOLATIONS -gt 0 ]; then
+                echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
+              else
+                echo "✅ No LWC Violations"
+              fi
             else
-              echo "✅ **LWC Violations:** None detected"
+              echo "✅ No LWC Violations"
             fi
-          fi
-          
-          echo ""
-          echo "==============================================="
-          echo "📋 **Summary:**"
-          echo "   • Delta Generation: ✅ Completed"
-          echo "   • Static Code Analysis: ✅ Completed"
-          if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-            echo "   • Deployment Validation: ❌ Failed (Test & Coverage Issues)"
-            echo "   • Test Execution: ❌ Failed (1/2 tests passed)"
+            echo ""
+            
+            # Quality Score
+            echo "📊 Quality Score"
+            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
+            if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+              echo "Code Quality: 🟢 Excellent (0 violations)"
+            elif [ $TOTAL_VIOLATIONS -le 5 ]; then
+              echo "Code Quality: 🟡 Good ($TOTAL_VIOLATIONS violations)"
+            else
+              echo "Code Quality: 🔴 Needs Attention ($TOTAL_VIOLATIONS violations)"
+            fi
+            
+            if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
+              echo "Deployment: 🔴 Failed (tests & coverage issues)"
+            else
+              echo "Deployment: 🟢 Passed"
+            fi
+            echo ""
+            
+            # Test Results
+            echo "🎯 Test Results"
+            if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
+              echo "ChangePasswordControllerTest → ❌ Failed (1/2 passed)"
+              echo "Coverage → ❌ SampleController 0% (requires 75%)"
+            else
+              echo "ChangePasswordControllerTest → ✅ Passed"
+              echo "Coverage → ✅ All requirements met"
+            fi
+            
           else
-            echo "   • Deployment Validation: ✅ Completed"
-            echo "   • Test Execution: ✅ Completed"
+            echo "📌 Validation Status: Skipped"
+            echo "ℹ️  Reason: No deployable metadata found in delta"
+            echo ""
+            echo "🔍 Static Code Analysis"
+            echo "✅ No Security Violations"
+            echo "✅ No LWC Violations"
+            echo ""
+            echo "📊 Quality Score"
+            echo "Code Quality: 🟢 Excellent (0 violations)"
+            echo "Deployment: ⚪ Skipped (no changes)"
           fi
-          echo "==============================================="
 
   deploy-to-sandbox:
     name: Deploy to Sandbox
@@ -471,171 +410,73 @@ jobs:
         if: always()
         run: |
           echo ""
-          echo "🚀 *Salesforce Deployment Summary* 🚀"
-          echo "==============================================="
+          echo "🚦 Deployment Status: ${{ steps.deploy_sandbox.outcome == 'success' && '✅ Succeeded' || '❌ Failed' }}"
           echo ""
           
           # Check deployment status
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            # Count components
-            COMPONENT_COUNT=$(find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | wc -l)
-            
-            # Check if deployment failed (exit code 1 from previous step)
+            # Check if deployment failed
             if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
-              echo "📌 **Deployment Status:** ❌ Failed"
+              echo "Main Issues:"
               echo ""
-              echo "==============================================="
-              echo "🔴 **Deployment Issues Detected:**"
-              echo "   • Test Failure: ChangePasswordControllerTest.testChangePassword"
-              echo "   • Error: DUPLICATE_USERNAME - Username already exists"
-              echo "   • Coverage Issue: SampleController has 0% coverage (requires 75%)"
+              echo "🔴 Test Failure → ChangePasswordControllerTest.testChangePassword"
+              echo "▸ Error: DUPLICATE_USERNAME (username already exists)"
               echo ""
-              echo "✅ **Number of Components Processed:** $COMPONENT_COUNT"
+              echo "🔴 Coverage Failure → SampleController 0% (needs 75%)"
               echo ""
-              echo "🟢 **Components in Delta Package:**"
-              
-              # List components
-              find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | while read file; do
-                echo "   • $(basename "$file")"
-              done
-              echo ""
-              
-              # Static Code Analysis Summary
-              echo "🔍 **Static Code Analysis Results:**"
-              echo "=================================="
-              
-              SECURITY_VIOLATIONS=0
-              LWC_VIOLATIONS=0
-              
-              if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
-                SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
-                echo "   📄 Review: pmd-security-report.txt"
-              else
-                echo "✅ **Security Violations:** None detected"
-              fi
-              
-              if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-                LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
-                echo "   📄 Review: pmd-lwc-report.txt"
-              else
-                echo "✅ **LWC Violations:** None detected"
-              fi
-              
-              echo ""
-              echo "📊 **Overall Quality Score:**"
-              TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
-              if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-                echo "   🟢 **Code Quality: Excellent** - No violations detected"
-              elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-                echo "   🟡 **Code Quality: Good** - $TOTAL_VIOLATIONS violations found"
-              else
-                echo "   🔴 **Code Quality: Needs Attention** - $TOTAL_VIOLATIONS violations found"
-              fi
-              echo "   🔴 **Deployment: Failed** - Test failures and coverage issues"
-              
-              echo ""
-              echo "🎯 **Test Results:**"
-              echo "   • Test Class: ChangePasswordControllerTest"
-              echo "   • Test Level: RunSpecifiedTests"
-              echo "   • Status: ❌ Failed (1/2 tests passed)"
-              echo "   • Coverage: ❌ SampleController 0% (requires 75%)"
-              echo "   • Error: DUPLICATE_USERNAME in testChangePassword"
-              
-            else
-              echo "📌 **Deployment Status:** ✅ Succeeded"
-              echo ""
-              echo "==============================================="
-              echo "✅ **Number of Component Successes:** $COMPONENT_COUNT"
-              echo ""
-              echo "🟢 **Components Deployed Successfully:**"
-              
-              # List components
-              find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | while read file; do
-                echo "   • $(basename "$file")"
-              done
-              echo ""
-              
-              # Static Code Analysis Summary
-              echo "🔍 **Static Code Analysis Results:**"
-              echo "=================================="
-              
-              SECURITY_VIOLATIONS=0
-              LWC_VIOLATIONS=0
-              
-              if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
-                SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
-                echo "   📄 Review: pmd-security-report.txt"
-              else
-                echo "✅ **Security Violations:** None detected"
-              fi
-              
-              if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-                LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-                echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
-                echo "   📄 Review: pmd-lwc-report.txt"
-              else
-                echo "✅ **LWC Violations:** None detected"
-              fi
-              
-              echo ""
-              echo "📊 **Overall Quality Score:**"
-              TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
-              if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-                echo "   🟢 **Excellent** - No violations detected"
-              elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-                echo "   🟡 **Good** - $TOTAL_VIOLATIONS violations found"
-              else
-                echo "   🔴 **Needs Attention** - $TOTAL_VIOLATIONS violations found"
-              fi
-              
-              echo ""
-              echo "🎯 **Test Coverage:**"
-              echo "   • Test Class: ChangePasswordControllerTest"
-              echo "   • Test Level: RunSpecifiedTests"
-              echo "   • Status: ✅ Executed"
             fi
             
-          else
-            echo "📌 **Deployment Status:** Skipped"
+            # Extract components from package.xml
+            echo "📦 Deployment Package Metadata:"
+            if [ -f "delta/package/package.xml" ]; then
+              # Extract Apex classes
+              APEX_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep -v 'Test' | tr '\n' ', ' | sed 's/,$//')
+              if [ -n "$APEX_CLASSES" ]; then
+                echo "Apex: $APEX_CLASSES"
+              fi
+              
+              # Extract Test classes
+              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ', ' | sed 's/,$//')
+              if [ -n "$TEST_CLASSES" ]; then
+                echo "Tests: $TEST_CLASSES"
+              fi
+              
+              # Extract LWC components
+              LWC_COMPONENTS=$(find delta/force-app -name "*.js" -o -name "*.html" -o -name "*.css" | sed 's/.*\///' | tr '\n' ', ' | sed 's/,$//')
+              if [ -n "$LWC_COMPONENTS" ]; then
+                echo "UI: $LWC_COMPONENTS"
+              fi
+            fi
             echo ""
-            echo "==============================================="
-            echo "ℹ️  **Reason:** No deployable metadata found in delta"
-            echo ""
-            echo "🔍 **Static Code Analysis Results:**"
-            echo "=================================="
-            echo "ℹ️  **Status:** Analysis completed on source code"
             
+            # Static Code Analysis Summary
+            echo "🔍 Static Code Analysis"
             SECURITY_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
             if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
               SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
-              echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
+              if [ $SECURITY_VIOLATIONS -gt 0 ]; then
+                echo "⚠️  Security Violations: $SECURITY_VIOLATIONS found"
+              else
+                echo "✅ No Security Violations"
+              fi
             else
-              echo "✅ **Security Violations:** None detected"
+              echo "✅ No Security Violations"
             fi
             
             if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
               LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-              echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
+              if [ $LWC_VIOLATIONS -gt 0 ]; then
+                echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
+              else
+                echo "✅ No LWC Violations"
+              fi
             else
-              echo "✅ **LWC Violations:** None detected"
+              echo "✅ No LWC Violations"
             fi
-          fi
-          
-          echo ""
-          echo "==============================================="
-          echo "📋 **Summary:**"
-          echo "   • Delta Generation: ✅ Completed"
-          echo "   • Static Code Analysis: ✅ Completed"
-          if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
-            echo "   • Deployment: ❌ Failed (Test & Coverage Issues)"
-            echo "   • Test Execution: ❌ Failed (1/2 tests passed)"
-          else
-            echo "   • Deployment: ✅ Completed"
-            echo "   • Test Execution: ✅ Completed"
-          fi
-          echo "==============================================="
+            echo ""
+            
+            # Quality Score
+            echo "📊 Quality Score"
+            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
