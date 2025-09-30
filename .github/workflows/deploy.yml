@@ -13,7 +13,7 @@ jobs:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    container: salesforce/salesforcedx:latest-full
+    container: salesforce/salesforcedx:latest-full-node20
     
     steps:
       - name: Checkout Repository with full history
@@ -26,7 +26,7 @@ jobs:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
+          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
       - name: Create Delta Output Directory
         run: mkdir -p delta
@@ -61,7 +61,7 @@ jobs:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    container: salesforce/salesforcedx:latest-full
+    container: salesforce/salesforcedx:latest-full-node20
 
     steps:
       - name: Checkout Repository with full history
