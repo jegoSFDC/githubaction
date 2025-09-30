@@ -87,7 +87,6 @@ jobs:
             --target force-app/main/default/classes
             --view detail
             --output-file reports/apex.json
-            --normalize-severity
             --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
           results-artifact-name: code-analyzer-apex-results
 
@@ -99,7 +98,6 @@ jobs:
             --target force-app/main/default/lwc
             --view detail
             --output-file reports/lwc.json
-            --normalize-severity
             --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
           results-artifact-name: code-analyzer-lwc-results
 
@@ -371,7 +369,6 @@ jobs:
             --target force-app/main/default/classes
             --view detail
             --output-file reports/apex.json
-            --normalize-severity
             --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
           results-artifact-name: code-analyzer-apex-results
 
@@ -383,7 +380,6 @@ jobs:
             --target force-app/main/default/lwc
             --view detail
             --output-file reports/lwc.json
-            --normalize-severity
             --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
           results-artifact-name: code-analyzer-lwc-results
 
