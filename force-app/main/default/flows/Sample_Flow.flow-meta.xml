@@ -42,4 +42,5 @@
         <isInput>false</isInput>
         <isOutput>false</isOutput>
     </variables>
+    <status>Draft</status>
 </Flow>
