@@ -42,19 +42,34 @@ jobs:
 
       - name: Install sfdx-git-delta Plugin
         run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
+          echo y | sf plugins install sfdx-git-delta
+          sf plugins --core
 
       - name: Generate Delta using sfdx-git-delta
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
+          sf sgd source delta \
+            --from origin/main \
+            --to HEAD \
+            -o delta \
+            --generate-delta \
+            -a 58.0 \
+            -s force-app/
+
+      - name: Debug Delta Generation
+        run: |
+          echo "=== Delta Directory Contents ==="
+          find delta/ -type f 2>/dev/null || echo "No delta directory found"
+          echo "=== Force-app Contents ==="
+          find delta/force-app -type f 2>/dev/null || echo "No force-app in delta"
+          echo "=== File Count ==="
+          find delta/force-app -type f 2>/dev/null | wc -l || echo "0"
 
       - name: Validate Delta Deployment with Specific Test Class
         run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Delta found. Proceeding with validation..."
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "✅ Delta found. Proceeding with validation..."
             sf project deploy start \
               --source-dir delta/force-app \
               --target-org sandbox \
@@ -63,7 +78,7 @@ jobs:
               --tests "ChangePasswordControllerTest" \
               --verbose
           else
-            echo "No deployable metadata found in delta. Skipping validation."
+            echo "ℹ️ No deployable metadata found in delta. Skipping validation."
           fi
 
   deploy-to-sandbox:
@@ -99,19 +114,34 @@ jobs:
 
       - name: Install sfdx-git-delta Plugin
         run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
+          echo y | sf plugins install sfdx-git-delta
+          sf plugins --core
 
       - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from HEAD~1 --output delta --generate-delta
+          sf sgd source delta \
+            --from HEAD~1 \
+            --to HEAD \
+            -o delta \
+            --generate-delta \
+            -a 58.0 \
+            -s force-app/
+
+      - name: Debug Delta Generation
+        run: |
+          echo "=== Delta Directory Contents ==="
+          find delta/ -type f 2>/dev/null || echo "No delta directory found"
+          echo "=== Force-app Contents ==="
+          find delta/force-app -type f 2>/dev/null || echo "No force-app in delta"
+          echo "=== File Count ==="
+          find delta/force-app -type f 2>/dev/null | wc -l || echo "0"
 
       - name: Deploy Delta to Sandbox with Specific Test Class
         run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Deployable delta found. Deploying..."
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "🚀 Deployable delta found. Deploying..."
             sf project deploy start \
               --source-dir delta/force-app \
               --target-org sandbox \
@@ -119,5 +149,5 @@ jobs:
               --tests "ChangePasswordControllerTest" \
               --verbose
           else
-            echo "No deployable metadata found. Skipping deployment."
+            echo "ℹ️ No deployable metadata found. Skipping deployment."
           fi
