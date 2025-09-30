@@ -33,13 +33,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Cache Salesforce CLI
         uses: actions/cache@v4
         with:
           path: ~/.sf
-          key: sf-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+          key: sf-cli-${{ runner.os }}-${{ hashFiles('**/sfdx-project.json') }}
           restore-keys: |
             sf-cli-${{ runner.os }}-
 
@@ -106,12 +105,14 @@ jobs:
 
       - name: Upload Code Analysis Reports
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: code-analysis-reports
           path: reports/
           retention-days: 30
 
       - name: Display Code Analysis Results
+        if: always()
         run: |
           echo "🔍 Static Code Analysis Results:"
           echo "=================================="
@@ -189,7 +190,7 @@ jobs:
         if: always()
         run: |
           echo ""
-          echo "🚦 Validation Status: ${{ steps.validate_deploy.outcome == 'success' && '✅ Passed' || '❌ Failed' }}"
+          echo "🚦 Validation Status: ${{ steps.validate_deploy.outcome == 'success' && '✅ Passed' || steps.validate_deploy.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed' }}"
           echo ""
           
           # Check deployment status
@@ -316,13 +317,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Cache Salesforce CLI
         uses: actions/cache@v4
         with:
           path: ~/.sf
-          key: sf-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+          key: sf-cli-${{ runner.os }}-${{ hashFiles('**/sfdx-project.json') }}
           restore-keys: |
             sf-cli-${{ runner.os }}-
 
@@ -389,12 +389,14 @@ jobs:
 
       - name: Upload Code Analysis Reports
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: code-analysis-reports
+          name: code-analysis-reports-deploy
           path: reports/
           retention-days: 30
 
       - name: Display Code Analysis Results
+        if: always()
         run: |
           echo "🔍 Static Code Analysis Results:"
           echo "=================================="
@@ -469,7 +471,7 @@ jobs:
         if: always()
         run: |
           echo ""
-          echo "🚦 Deployment Status: ${{ steps.deploy_sandbox.outcome == 'success' && '✅ Succeeded' || '❌ Failed' }}"
+          echo "🚦 Deployment Status: ${{ steps.deploy_sandbox.outcome == 'success' && '✅ Succeeded' || steps.deploy_sandbox.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed' }}"
           echo ""
           
           # Check deployment status
