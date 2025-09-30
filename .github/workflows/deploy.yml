@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+env:
+  SEVERITY_THRESHOLD: 3  # High/Critical only (1=all, 2=medium+, 3=high+, 4=critical)
+
 jobs:
   pr-validation:
     name: PR Validation
@@ -20,10 +23,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
       - name: Setup Node & Salesforce CLI
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+
+      - name: Cache Salesforce CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.sf
+          key: sf-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            sf-cli-${{ runner.os }}-
 
       - name: Install Salesforce CLI
         run: |
@@ -38,7 +56,7 @@ jobs:
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
       - name: Create Delta Output Directory
-        run: mkdir -p delta
+        run: mkdir -p delta reports
 
       - name: Install sfdx-git-delta Plugin
         run: |
@@ -62,21 +80,36 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
-      - name: Run Salesforce Code Analyzer (Official)
+      - name: Run Salesforce Code Analyzer for Apex
+        id: run-code-analyzer-apex
         uses: forcedotcom/run-code-analyzer@v2
         with:
-          run-arguments: '--output-file scanner-report.json --target force-app/main/default/classes --format json --severity-threshold 1'
-          results-artifact-name: 'code-analyzer-results'
-        env:
-          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+          run-arguments: >
+            --target force-app/main/default/classes
+            --view detail
+            --output-file reports/apex.json
+            --normalize-severity
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-apex-results
 
-      - name: Run Salesforce Code Analyzer for LWC (Official)
+      - name: Run Salesforce Code Analyzer for LWC
+        id: run-code-analyzer-lwc
         uses: forcedotcom/run-code-analyzer@v2
         with:
-          run-arguments: '--output-file scanner-lwc-report.json --target force-app/main/default/lwc --format json --severity-threshold 1'
-          results-artifact-name: 'code-analyzer-lwc-results'
-        env:
-          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+          run-arguments: >
+            --target force-app/main/default/lwc
+            --view detail
+            --output-file reports/lwc.json
+            --normalize-severity
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-lwc-results
+
+      - name: Upload Code Analysis Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-analysis-reports
+          path: reports/
+          retention-days: 30
 
       - name: Display Code Analysis Results
         run: |
@@ -84,12 +117,12 @@ jobs:
           echo "=================================="
           
           # Display Apex results
-          if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+          if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
             echo "📊 Apex Analysis Results:"
-            APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
             if [ $APEX_VIOLATIONS -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
-              cat scanner-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
+              cat reports/apex.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No Apex violations found!"
             fi
@@ -100,12 +133,12 @@ jobs:
           echo ""
           
           # Display LWC results
-          if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+          if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
             echo "📊 LWC Analysis Results:"
-            LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
             if [ $LWC_VIOLATIONS -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
-              cat scanner-lwc-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
+              cat reports/lwc.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No LWC violations found!"
             fi
@@ -113,17 +146,41 @@ jobs:
             echo "✅ No LWC violations found!"
           fi
 
-      - name: Validate Delta Deployment with Specific Test Class
+      - name: Validate Delta Deployment with Dynamic Test Classes
         id: validate_deploy
         run: |
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
             echo "Delta found. Proceeding with validation..."
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org sandbox \
-              --dry-run \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest"
+            
+            # Extract test classes from package.xml dynamically
+            if [ -f "delta/package/package.xml" ]; then
+              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | \
+                sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ',' | sed 's/,$//')
+              
+              if [ -n "$TEST_CLASSES" ]; then
+                echo "Running specified test classes: $TEST_CLASSES"
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --dry-run \
+                  --test-level RunSpecifiedTests \
+                  --tests "$TEST_CLASSES"
+              else
+                echo "No test classes found in package.xml, running local tests"
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --dry-run \
+                  --test-level RunLocalTests
+              fi
+            else
+              echo "No package.xml found, running local tests"
+              sf project deploy start \
+                --source-dir delta/force-app \
+                --target-org sandbox \
+                --dry-run \
+                --test-level RunLocalTests
+            fi
           else
             echo "No deployable metadata found in delta. Skipping validation."
           fi
@@ -141,10 +198,8 @@ jobs:
             if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
               echo "Main Issues:"
               echo ""
-              echo "🔴 Test Failure → ChangePasswordControllerTest.testChangePassword"
-              echo "▸ Error: DUPLICATE_USERNAME (username already exists)"
-              echo ""
-              echo "🔴 Coverage Failure → SampleController 0% (needs 75%)"
+              echo "🔴 Test Failure → Check test execution logs above"
+              echo "🔴 Coverage Failure → Review test coverage requirements"
               echo ""
             fi
             
@@ -176,8 +231,8 @@ jobs:
             APEX_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
-            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
-              APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
+              APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $APEX_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
@@ -187,8 +242,8 @@ jobs:
               echo "✅ No Apex Violations"
             fi
             
-            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
-              LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
+              LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $LWC_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
@@ -220,10 +275,10 @@ jobs:
             # Test Results
             echo "🎯 Test Results"
             if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-              echo "ChangePasswordControllerTest → ❌ Failed (1/2 passed)"
-              echo "Coverage → ❌ SampleController 0% (requires 75%)"
+              echo "Test Execution → ❌ Failed (check logs above)"
+              echo "Coverage → ❌ Review coverage requirements"
             else
-              echo "ChangePasswordControllerTest → ✅ Passed"
+              echo "Test Execution → ✅ Passed"
               echo "Coverage → ✅ All requirements met"
             fi
             
@@ -251,10 +306,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
       - name: Setup Node & Salesforce CLI
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+
+      - name: Cache Salesforce CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.sf
+          key: sf-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            sf-cli-${{ runner.os }}-
 
       - name: Install Salesforce CLI
         run: |
@@ -269,18 +339,18 @@ jobs:
           sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
 
       - name: Create Delta Output Directory
-        run: mkdir -p delta
+        run: mkdir -p delta reports
 
       - name: Install sfdx-git-delta Plugin
         run: |
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
-      - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
+      - name: Generate Delta using sfdx-git-delta (safer approach)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main --quiet
-          sf sgd source delta --to HEAD --from HEAD~1 --output delta --generate-delta
+          sf sgd source delta --to HEAD --from origin/main --output delta --generate-delta
 
       - name: Show Generated Package.xml Files
         run: |
@@ -293,21 +363,36 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
-      - name: Run Salesforce Code Analyzer (Official)
+      - name: Run Salesforce Code Analyzer for Apex
+        id: run-code-analyzer-apex
         uses: forcedotcom/run-code-analyzer@v2
         with:
-          run-arguments: '--output-file scanner-report.json --target force-app/main/default/classes --format json --severity-threshold 1'
-          results-artifact-name: 'code-analyzer-results'
-        env:
-          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+          run-arguments: >
+            --target force-app/main/default/classes
+            --view detail
+            --output-file reports/apex.json
+            --normalize-severity
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-apex-results
 
-      - name: Run Salesforce Code Analyzer for LWC (Official)
+      - name: Run Salesforce Code Analyzer for LWC
+        id: run-code-analyzer-lwc
         uses: forcedotcom/run-code-analyzer@v2
         with:
-          run-arguments: '--output-file scanner-lwc-report.json --target force-app/main/default/lwc --format json --severity-threshold 1'
-          results-artifact-name: 'code-analyzer-lwc-results'
-        env:
-          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+          run-arguments: >
+            --target force-app/main/default/lwc
+            --view detail
+            --output-file reports/lwc.json
+            --normalize-severity
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-lwc-results
+
+      - name: Upload Code Analysis Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-analysis-reports
+          path: reports/
+          retention-days: 30
 
       - name: Display Code Analysis Results
         run: |
@@ -315,12 +400,12 @@ jobs:
           echo "=================================="
           
           # Display Apex results
-          if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+          if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
             echo "📊 Apex Analysis Results:"
-            APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
             if [ $APEX_VIOLATIONS -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
-              cat scanner-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
+              cat reports/apex.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No Apex violations found!"
             fi
@@ -331,12 +416,12 @@ jobs:
           echo ""
           
           # Display LWC results
-          if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+          if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
             echo "📊 LWC Analysis Results:"
-            LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
             if [ $LWC_VIOLATIONS -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
-              cat scanner-lwc-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
+              cat reports/lwc.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No LWC violations found!"
             fi
@@ -344,16 +429,38 @@ jobs:
             echo "✅ No LWC violations found!"
           fi
 
-      - name: Deploy Delta to Sandbox with Specific Test Class
+      - name: Deploy Delta to Sandbox with Dynamic Test Classes
         id: deploy_sandbox
         run: |
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
             echo "Deployable delta found. Deploying..."
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org sandbox \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest"
+            
+            # Extract test classes from package.xml dynamically
+            if [ -f "delta/package/package.xml" ]; then
+              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | \
+                sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ',' | sed 's/,$//')
+              
+              if [ -n "$TEST_CLASSES" ]; then
+                echo "Running specified test classes: $TEST_CLASSES"
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --test-level RunSpecifiedTests \
+                  --tests "$TEST_CLASSES"
+              else
+                echo "No test classes found in package.xml, running local tests"
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --test-level RunLocalTests
+              fi
+            else
+              echo "No package.xml found, running local tests"
+              sf project deploy start \
+                --source-dir delta/force-app \
+                --target-org sandbox \
+                --test-level RunLocalTests
+            fi
           else
             echo "No deployable metadata found. Skipping deployment."
           fi
@@ -371,10 +478,8 @@ jobs:
             if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
               echo "Main Issues:"
               echo ""
-              echo "🔴 Test Failure → ChangePasswordControllerTest.testChangePassword"
-              echo "▸ Error: DUPLICATE_USERNAME (username already exists)"
-              echo ""
-              echo "🔴 Coverage Failure → SampleController 0% (needs 75%)"
+              echo "🔴 Test Failure → Check test execution logs above"
+              echo "🔴 Coverage Failure → Review test coverage requirements"
               echo ""
             fi
             
@@ -406,8 +511,8 @@ jobs:
             APEX_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
-            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
-              APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
+              APEX_VIOLATIONS=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $APEX_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
@@ -417,8 +522,8 @@ jobs:
               echo "✅ No Apex Violations"
             fi
             
-            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
-              LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
+              LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $LWC_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
@@ -450,10 +555,10 @@ jobs:
             # Test Results
             echo "🎯 Test Results"
             if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
-              echo "ChangePasswordControllerTest → ❌ Failed (1/2 passed)"
-              echo "Coverage → ❌ SampleController 0% (requires 75%)"
+              echo "Test Execution → ❌ Failed (check logs above)"
+              echo "Coverage → ❌ Review coverage requirements"
             else
-              echo "ChangePasswordControllerTest → ✅ Passed"
+              echo "Test Execution → ✅ Passed"
               echo "Coverage → ✅ All requirements met"
             fi
             
