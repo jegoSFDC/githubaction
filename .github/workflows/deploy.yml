@@ -27,7 +27,7 @@ jobs:
 
       - name: Install Salesforce CLI
         run: |
-          npm install -g @salesforce/cli
+          npm install -g @salesforce/cli --silent
           sf --version
 
       - name: Authenticate Salesforce (PR Validation)
@@ -48,7 +48,7 @@ jobs:
       - name: Generate Delta using sfdx-git-delta
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main
+          git fetch origin main --quiet
           sf sgd source delta --to HEAD --from origin/main --output delta --generate-delta
 
       - name: Show Generated Package.xml Files
@@ -71,16 +71,16 @@ jobs:
           
           # Download official Salesforce PMD security ruleset
           echo "📥 Downloading Salesforce PMD Security Ruleset..."
-          curl -o rulesets/apex/security.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/security.xml
+          curl -s -o rulesets/apex/security.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/security.xml
           
           # Download additional security rulesets
           echo "📥 Downloading additional security rulesets..."
-          curl -o rulesets/apex/bestpractices.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/bestpractices.xml
-          curl -o rulesets/apex/design.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/design.xml
+          curl -s -o rulesets/apex/bestpractices.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/bestpractices.xml
+          curl -s -o rulesets/apex/design.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/design.xml
           
           # Install PMD
           echo "📦 Installing PMD..."
-          npm install -g pmd-bin
+          npm install -g pmd-bin --silent
           
           # Run PMD analysis on Apex classes
           echo "🔍 Running PMD Security Analysis..."
@@ -89,11 +89,11 @@ jobs:
                 -R rulesets/apex/security.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-security-report.txt || echo "PMD analysis completed with findings"
+                --report-file pmd-security-report.txt > /dev/null 2>&1 || echo "PMD analysis completed with findings"
             
             # Display results
             echo "📊 PMD Security Analysis Results:"
-            if [ -f "pmd-security-report.txt" ]; then
+            if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
               cat pmd-security-report.txt
             else
               echo "✅ No security violations found!"
@@ -109,11 +109,11 @@ jobs:
                 -R rulesets/apex/bestpractices.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-lwc-report.txt || echo "PMD LWC analysis completed with findings"
+                --report-file pmd-lwc-report.txt > /dev/null 2>&1 || echo "PMD LWC analysis completed with findings"
             
             # Display results
             echo "📊 PMD LWC Analysis Results:"
-            if [ -f "pmd-lwc-report.txt" ]; then
+            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
               cat pmd-lwc-report.txt
             else
               echo "✅ No LWC violations found!"
@@ -147,8 +147,7 @@ jobs:
               --target-org sandbox \
               --dry-run \
               --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
+              --tests "ChangePasswordControllerTest"
           else
             echo "No deployable metadata found in delta. Skipping validation."
           fi
@@ -344,7 +343,7 @@ jobs:
 
       - name: Install Salesforce CLI
         run: |
-          npm install -g @salesforce/cli
+          npm install -g @salesforce/cli --silent
           sf --version
 
       - name: Authenticate Salesforce (Deploy)
@@ -365,7 +364,7 @@ jobs:
       - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main
+          git fetch origin main --quiet
           sf sgd source delta --to HEAD --from HEAD~1 --output delta --generate-delta
 
       - name: Show Generated Package.xml Files
@@ -388,16 +387,16 @@ jobs:
           
           # Download official Salesforce PMD security ruleset
           echo "📥 Downloading Salesforce PMD Security Ruleset..."
-          curl -o rulesets/apex/security.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/security.xml
+          curl -s -o rulesets/apex/security.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/security.xml
           
           # Download additional security rulesets
           echo "📥 Downloading additional security rulesets..."
-          curl -o rulesets/apex/bestpractices.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/bestpractices.xml
-          curl -o rulesets/apex/design.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/design.xml
+          curl -s -o rulesets/apex/bestpractices.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/bestpractices.xml
+          curl -s -o rulesets/apex/design.xml https://raw.githubusercontent.com/pmd/pmd/master/pmd-apex/src/main/resources/category/apex/design.xml
           
           # Install PMD
           echo "📦 Installing PMD..."
-          npm install -g pmd-bin
+          npm install -g pmd-bin --silent
           
           # Run PMD analysis on Apex classes
           echo "🔍 Running PMD Security Analysis..."
@@ -406,11 +405,11 @@ jobs:
                 -R rulesets/apex/security.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-security-report.txt || echo "PMD analysis completed with findings"
+                --report-file pmd-security-report.txt > /dev/null 2>&1 || echo "PMD analysis completed with findings"
             
             # Display results
             echo "📊 PMD Security Analysis Results:"
-            if [ -f "pmd-security-report.txt" ]; then
+            if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
               cat pmd-security-report.txt
             else
               echo "✅ No security violations found!"
@@ -426,11 +425,11 @@ jobs:
                 -R rulesets/apex/bestpractices.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-lwc-report.txt || echo "PMD LWC analysis completed with findings"
+                --report-file pmd-lwc-report.txt > /dev/null 2>&1 || echo "PMD LWC analysis completed with findings"
             
             # Display results
             echo "📊 PMD LWC Analysis Results:"
-            if [ -f "pmd-lwc-report.txt" ]; then
+            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
               cat pmd-lwc-report.txt
             else
               echo "✅ No LWC violations found!"
@@ -463,8 +462,7 @@ jobs:
               --source-dir delta/force-app \
               --target-org sandbox \
               --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
+              --tests "ChangePasswordControllerTest"
           else
             echo "No deployable metadata found. Skipping deployment."
           fi
