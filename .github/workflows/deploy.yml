@@ -13,18 +13,9 @@ jobs:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    container: salesforce/salesforcedx:latest-full-node20
     
     steps:
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Salesforce CLI
-        run: |
-          npm install -g @salesforce/cli
-          sf --version
-
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
@@ -42,34 +33,19 @@ jobs:
 
       - name: Install sfdx-git-delta Plugin
         run: |
-          echo y | sf plugins install sfdx-git-delta
-          sf plugins --core
+          echo y | sfdx plugins:install sfdx-git-delta
+          sfdx plugins --core
 
       - name: Generate Delta using sfdx-git-delta
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
-          sf sgd source delta \
-            --from origin/main \
-            --to HEAD \
-            -o delta \
-            --generate-delta \
-            -a 58.0 \
-            -s force-app/
-
-      - name: Debug Delta Generation
-        run: |
-          echo "=== Delta Directory Contents ==="
-          find delta/ -type f 2>/dev/null || echo "No delta directory found"
-          echo "=== Force-app Contents ==="
-          find delta/force-app -type f 2>/dev/null || echo "No force-app in delta"
-          echo "=== File Count ==="
-          find delta/force-app -type f 2>/dev/null | wc -l || echo "0"
+          sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
 
       - name: Validate Delta Deployment with Specific Test Class
         run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | wc -l)" -gt 0 ]; then
-            echo "✅ Delta found. Proceeding with validation..."
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "Delta found. Proceeding with validation..."
             sf project deploy start \
               --source-dir delta/force-app \
               --target-org sandbox \
@@ -78,25 +54,16 @@ jobs:
               --tests "ChangePasswordControllerTest" \
               --verbose
           else
-            echo "ℹ️ No deployable metadata found in delta. Skipping validation."
+            echo "No deployable metadata found in delta. Skipping validation."
           fi
 
   deploy-to-sandbox:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    container: salesforce/salesforcedx:latest-full-node20
 
     steps:
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Salesforce CLI
-        run: |
-          npm install -g @salesforce/cli
-          sf --version
-
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
@@ -114,34 +81,19 @@ jobs:
 
       - name: Install sfdx-git-delta Plugin
         run: |
-          echo y | sf plugins install sfdx-git-delta
-          sf plugins --core
+          echo y | sfdx plugins:install sfdx-git-delta
+          sfdx plugins --core
 
       - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
-          sf sgd source delta \
-            --from HEAD~1 \
-            --to HEAD \
-            -o delta \
-            --generate-delta \
-            -a 58.0 \
-            -s force-app/
-
-      - name: Debug Delta Generation
-        run: |
-          echo "=== Delta Directory Contents ==="
-          find delta/ -type f 2>/dev/null || echo "No delta directory found"
-          echo "=== Force-app Contents ==="
-          find delta/force-app -type f 2>/dev/null || echo "No force-app in delta"
-          echo "=== File Count ==="
-          find delta/force-app -type f 2>/dev/null | wc -l || echo "0"
+          sfdx sgd:source:delta --to HEAD --from HEAD~1 --output delta --generate-delta
 
       - name: Deploy Delta to Sandbox with Specific Test Class
         run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | wc -l)" -gt 0 ]; then
-            echo "🚀 Deployable delta found. Deploying..."
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "Deployable delta found. Deploying..."
             sf project deploy start \
               --source-dir delta/force-app \
               --target-org sandbox \
@@ -149,5 +101,5 @@ jobs:
               --tests "ChangePasswordControllerTest" \
               --verbose
           else
-            echo "ℹ️ No deployable metadata found. Skipping deployment."
+            echo "No deployable metadata found. Skipping deployment."
           fi
