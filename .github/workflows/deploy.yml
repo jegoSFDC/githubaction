@@ -51,6 +51,17 @@ jobs:
           git fetch origin main
           sf sgd source delta --to HEAD --from origin/main --output delta --generate-delta
 
+      - name: Show Generated Package.xml Files
+        run: |
+          echo "=== Delta Directory Structure ==="
+          find delta -type f | head -20 || echo "No delta files found"
+          echo ""
+          echo "=== Package.xml (if exists) ==="
+          [ -f delta/package/package.xml ] && cat delta/package/package.xml || echo "No package.xml"
+          echo ""
+          echo "=== Destructive Changes (if exists) ==="
+          find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
+
       - name: Validate Delta Deployment with Specific Test Class
         run: |
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
@@ -107,6 +118,17 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin main
           sf sgd source delta --to HEAD --from HEAD~1 --output delta --generate-delta
+
+      - name: Show Generated Package.xml Files
+        run: |
+          echo "=== Delta Directory Structure ==="
+          find delta -type f | head -20 || echo "No delta files found"
+          echo ""
+          echo "=== Package.xml (if exists) ==="
+          [ -f delta/package/package.xml ] && cat delta/package/package.xml || echo "No package.xml"
+          echo ""
+          echo "=== Destructive Changes (if exists) ==="
+          find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
       - name: Deploy Delta to Sandbox with Specific Test Class
         run: |
