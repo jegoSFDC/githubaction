@@ -62,199 +62,50 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
-      - name: Static Code Analysis - Security Scan
+      - name: Static Code Analysis - Salesforce Code Analyzer
         run: |
-          echo "🔍 Running PMD Static Code Analysis for Security..."
+          echo "🔍 Running Salesforce Code Analyzer..."
           
-          # Install PMD
-          echo "📦 Installing PMD..."
-          npm install -g pmd-bin --silent
+          # Install Salesforce Code Analyzer
+          npm install -g @salesforce/sfdx-scanner --silent
           
-          # Create custom ruleset for testing
-          echo "📝 Creating custom PMD ruleset..."
-          cat > custom-ruleset.xml << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <ruleset name="Custom Apex Ruleset" xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
-                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                  xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
-            <description>Custom ruleset for testing PMD violations</description>
-            
-            <!-- Security Rules -->
-            <rule ref="category/apex/security.xml/ApexBadCrypto">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexCSRF">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexDangerousMethods">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexInsecureEndpoint">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexOpenRedirect">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexSharingViolations">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexSOQLInjection">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexXSSFromEscapeFalse">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexXSSFromURLParam">
-              <priority>1</priority>
-            </rule>
-            
-            <!-- Best Practices Rules -->
-            <rule ref="category/apex/bestpractices.xml/ApexAssertionsShouldIncludeMessage">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexBadCrypto">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexCSRF">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexDangerousMethods">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexInsecureEndpoint">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexOpenRedirect">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexSharingViolations">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexSOQLInjection">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexXSSFromEscapeFalse">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexXSSFromURLParam">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidDmlStatementsInLoops">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidHardcodingId">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidNonExistentAnnotations">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidSoqlInLoops">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidSoslInLoops">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyCatchBlock">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyIfStmt">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyStatementBlock">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyTryOrFinallyBlock">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyWhileStmt">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/UnusedLocalVariable">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/UnusedPrivateField">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/UnusedPrivateMethod">
-              <priority>3</priority>
-            </rule>
-          </ruleset>
-          EOF
-          
-          # Run PMD analysis on Apex classes
-          echo "🔍 Running PMD Analysis on Apex Classes..."
+          # Run analysis on Apex classes
           if [ -d "force-app/main/default/classes" ]; then
-            pmd -d force-app/main/default/classes \
-                -R custom-ruleset.xml \
-                -f text \
-                --fail-on-violation false \
-                --report-file pmd-report.txt 2>&1 || echo "PMD analysis completed"
+            echo "📊 Analyzing Apex Classes..."
+            sfdx scanner:run --target "force-app/main/default/classes" \
+                --format table \
+                --severity-threshold 1 \
+                --outfile scanner-report.json || echo "Scanner completed with findings"
             
             # Display results
-            echo "📊 PMD Analysis Results:"
-            if [ -f "pmd-report.txt" ] && [ -s "pmd-report.txt" ]; then
-              echo "⚠️  Violations found:"
-              cat pmd-report.txt
+            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+              echo "⚠️  Code Analysis Results:"
+              cat scanner-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
-              echo "✅ No violations found!"
+              echo "✅ No code analysis violations found!"
             fi
           else
             echo "ℹ️ No Apex classes found for analysis"
           fi
           
-          # Run PMD analysis on Lightning Web Components
-          echo ""
-          echo "🔍 Running PMD Analysis on LWC..."
+          # Run analysis on LWC components
           if [ -d "force-app/main/default/lwc" ]; then
-            pmd -d force-app/main/default/lwc \
-                -R category/javascript/bestpractices.xml \
-                -f text \
-                --fail-on-violation false \
-                --report-file pmd-lwc-report.txt 2>&1 || echo "PMD LWC analysis completed"
+            echo ""
+            echo "📊 Analyzing LWC Components..."
+            sfdx scanner:run --target "force-app/main/default/lwc" \
+                --format table \
+                --severity-threshold 1 \
+                --outfile scanner-lwc-report.json || echo "LWC Scanner completed with findings"
             
             # Display results
-            echo "📊 PMD LWC Analysis Results:"
-            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-              echo "⚠️  LWC violations found:"
-              cat pmd-lwc-report.txt
+            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+              echo "⚠️  LWC Analysis Results:"
+              cat scanner-lwc-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No LWC violations found!"
             fi
           else
             echo "ℹ️ No LWC components found for analysis"
-          fi
-          
-          # Generate summary
-          echo ""
-          echo "📋 Static Code Analysis Summary:"
-          echo "=================================="
-          
-          APEX_VIOLATIONS=0
-          LWC_VIOLATIONS=0
-          
-          if [ -f "pmd-report.txt" ] && [ -s "pmd-report.txt" ]; then
-            APEX_VIOLATIONS=$(grep -c ":" pmd-report.txt 2>/dev/null || echo "0")
-            echo "🔴 Apex Violations: $APEX_VIOLATIONS found"
-          else
-            echo "✅ Apex Violations: None detected"
-          fi
-          
-          if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-            LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-            echo "🟡 LWC Violations: $LWC_VIOLATIONS found"
-          else
-            echo "✅ LWC Violations: None detected"
-          fi
-          
-          TOTAL_VIOLATIONS=$((APEX_VIOLATIONS + LWC_VIOLATIONS))
-          echo ""
-          echo "📊 Total Violations: $TOTAL_VIOLATIONS"
-          if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-            echo "🎉 Code Quality: Excellent!"
-          elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-            echo "👍 Code Quality: Good"
-          else
-            echo "⚠️  Code Quality: Needs Attention"
           fi
 
       - name: Validate Delta Deployment with Specific Test Class
@@ -320,8 +171,8 @@ jobs:
             APEX_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
-            if [ -f "pmd-report.txt" ] && [ -s "pmd-report.txt" ]; then
-              APEX_VIOLATIONS=$(grep -c ":" pmd-report.txt 2>/dev/null || echo "0")
+            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+              APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $APEX_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
@@ -331,8 +182,8 @@ jobs:
               echo "✅ No Apex Violations"
             fi
             
-            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-              LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+              LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $LWC_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
@@ -437,199 +288,50 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
-      - name: Static Code Analysis - Security Scan
+      - name: Static Code Analysis - Salesforce Code Analyzer
         run: |
-          echo "🔍 Running PMD Static Code Analysis for Security..."
+          echo "🔍 Running Salesforce Code Analyzer..."
           
-          # Install PMD
-          echo "📦 Installing PMD..."
-          npm install -g pmd-bin --silent
+          # Install Salesforce Code Analyzer
+          npm install -g @salesforce/sfdx-scanner --silent
           
-          # Create custom ruleset for testing
-          echo "📝 Creating custom PMD ruleset..."
-          cat > custom-ruleset.xml << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <ruleset name="Custom Apex Ruleset" xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
-                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                  xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
-            <description>Custom ruleset for testing PMD violations</description>
-            
-            <!-- Security Rules -->
-            <rule ref="category/apex/security.xml/ApexBadCrypto">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexCSRF">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexDangerousMethods">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexInsecureEndpoint">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexOpenRedirect">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexSharingViolations">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexSOQLInjection">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexXSSFromEscapeFalse">
-              <priority>1</priority>
-            </rule>
-            <rule ref="category/apex/security.xml/ApexXSSFromURLParam">
-              <priority>1</priority>
-            </rule>
-            
-            <!-- Best Practices Rules -->
-            <rule ref="category/apex/bestpractices.xml/ApexAssertionsShouldIncludeMessage">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexBadCrypto">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexCSRF">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexDangerousMethods">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexInsecureEndpoint">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexOpenRedirect">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexSharingViolations">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexSOQLInjection">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexXSSFromEscapeFalse">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/ApexXSSFromURLParam">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidDmlStatementsInLoops">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidHardcodingId">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidNonExistentAnnotations">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidSoqlInLoops">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/AvoidSoslInLoops">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyCatchBlock">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyIfStmt">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyStatementBlock">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyTryOrFinallyBlock">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/EmptyWhileStmt">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/UnusedLocalVariable">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/UnusedPrivateField">
-              <priority>3</priority>
-            </rule>
-            <rule ref="category/apex/bestpractices.xml/UnusedPrivateMethod">
-              <priority>3</priority>
-            </rule>
-          </ruleset>
-          EOF
-          
-          # Run PMD analysis on Apex classes
-          echo "🔍 Running PMD Analysis on Apex Classes..."
+          # Run analysis on Apex classes
           if [ -d "force-app/main/default/classes" ]; then
-            pmd -d force-app/main/default/classes \
-                -R custom-ruleset.xml \
-                -f text \
-                --fail-on-violation false \
-                --report-file pmd-report.txt 2>&1 || echo "PMD analysis completed"
+            echo "📊 Analyzing Apex Classes..."
+            sfdx scanner:run --target "force-app/main/default/classes" \
+                --format table \
+                --severity-threshold 1 \
+                --outfile scanner-report.json || echo "Scanner completed with findings"
             
             # Display results
-            echo "📊 PMD Analysis Results:"
-            if [ -f "pmd-report.txt" ] && [ -s "pmd-report.txt" ]; then
-              echo "⚠️  Violations found:"
-              cat pmd-report.txt
+            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+              echo "⚠️  Code Analysis Results:"
+              cat scanner-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
-              echo "✅ No violations found!"
+              echo "✅ No code analysis violations found!"
             fi
           else
             echo "ℹ️ No Apex classes found for analysis"
           fi
           
-          # Run PMD analysis on Lightning Web Components
-          echo ""
-          echo "🔍 Running PMD Analysis on LWC..."
+          # Run analysis on LWC components
           if [ -d "force-app/main/default/lwc" ]; then
-            pmd -d force-app/main/default/lwc \
-                -R category/javascript/bestpractices.xml \
-                -f text \
-                --fail-on-violation false \
-                --report-file pmd-lwc-report.txt 2>&1 || echo "PMD LWC analysis completed"
+            echo ""
+            echo "📊 Analyzing LWC Components..."
+            sfdx scanner:run --target "force-app/main/default/lwc" \
+                --format table \
+                --severity-threshold 1 \
+                --outfile scanner-lwc-report.json || echo "LWC Scanner completed with findings"
             
             # Display results
-            echo "📊 PMD LWC Analysis Results:"
-            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-              echo "⚠️  LWC violations found:"
-              cat pmd-lwc-report.txt
+            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+              echo "⚠️  LWC Analysis Results:"
+              cat scanner-lwc-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No LWC violations found!"
             fi
           else
             echo "ℹ️ No LWC components found for analysis"
-          fi
-          
-          # Generate summary
-          echo ""
-          echo "📋 Static Code Analysis Summary:"
-          echo "=================================="
-          
-          APEX_VIOLATIONS=0
-          LWC_VIOLATIONS=0
-          
-          if [ -f "pmd-report.txt" ] && [ -s "pmd-report.txt" ]; then
-            APEX_VIOLATIONS=$(grep -c ":" pmd-report.txt 2>/dev/null || echo "0")
-            echo "🔴 Apex Violations: $APEX_VIOLATIONS found"
-          else
-            echo "✅ Apex Violations: None detected"
-          fi
-          
-          if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-            LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
-            echo "🟡 LWC Violations: $LWC_VIOLATIONS found"
-          else
-            echo "✅ LWC Violations: None detected"
-          fi
-          
-          TOTAL_VIOLATIONS=$((APEX_VIOLATIONS + LWC_VIOLATIONS))
-          echo ""
-          echo "📊 Total Violations: $TOTAL_VIOLATIONS"
-          if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-            echo "🎉 Code Quality: Excellent!"
-          elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-            echo "👍 Code Quality: Good"
-          else
-            echo "⚠️  Code Quality: Needs Attention"
           fi
 
       - name: Deploy Delta to Sandbox with Specific Test Class
@@ -694,8 +396,8 @@ jobs:
             APEX_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
-            if [ -f "pmd-report.txt" ] && [ -s "pmd-report.txt" ]; then
-              APEX_VIOLATIONS=$(grep -c ":" pmd-report.txt 2>/dev/null || echo "0")
+            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+              APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $APEX_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
@@ -705,8 +407,8 @@ jobs:
               echo "✅ No Apex Violations"
             fi
             
-            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-              LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+              LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
               if [ $LWC_VIOLATIONS -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
