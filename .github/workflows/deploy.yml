@@ -115,10 +115,10 @@ EOF
               PKG_FILE=delta/package/package.xml
             fi
 
-            echo "Using manifest: $PKG_FILE and pre-destructive: $DC_FILE"
+            echo "Using manifest: $PKG_FILE and post-destructive: $DC_FILE"
             sf project deploy start \
               --manifest "$PKG_FILE" \
-              --pre-destructive-changes "$DC_FILE" \
+              --post-destructive-changes "$DC_FILE" \
               --target-org sandbox \
               --dry-run \
               --test-level RunSpecifiedTests \
@@ -223,10 +223,10 @@ EOF
               PKG_FILE=delta/package/package.xml
             fi
 
-            echo "Using manifest: $PKG_FILE and pre-destructive: $DC_FILE"
+            echo "Using manifest: $PKG_FILE and post-destructive: $DC_FILE"
             sf project deploy start \
               --manifest "$PKG_FILE" \
-              --pre-destructive-changes "$DC_FILE" \
+              --post-destructive-changes "$DC_FILE" \
               --target-org sandbox \
               --test-level RunSpecifiedTests \
               --tests "ChangePasswordControllerTest" \
