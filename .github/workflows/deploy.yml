@@ -13,9 +13,18 @@ jobs:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    container: salesforce/salesforcedx:latest-full-node20
     
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Salesforce CLI
+        run: |
+          npm install -g @salesforce/cli
+          sf --version
+
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
@@ -61,9 +70,18 @@ jobs:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    container: salesforce/salesforcedx:latest-full-node20
 
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Salesforce CLI
+        run: |
+          npm install -g @salesforce/cli
+          sf --version
+
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
