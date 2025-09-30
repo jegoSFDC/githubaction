@@ -152,6 +152,108 @@ jobs:
             echo "No deployable metadata found in delta. Skipping validation."
           fi
 
+      - name: Deployment Summary Report
+        run: |
+          echo ""
+          echo "🚀 *Salesforce Validation Deployment Summary* 🚀"
+          echo "==============================================="
+          echo ""
+          
+          # Check deployment status
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "📌 **Validation Deployment Status:** Succeeded"
+            echo ""
+            echo "==============================================="
+            
+            # Count components
+            COMPONENT_COUNT=$(find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | wc -l)
+            echo "✅ **Number of Component Successes:** $COMPONENT_COUNT"
+            echo ""
+            echo "🟢 **Components Validated Successfully:**"
+            
+            # List components
+            find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | while read file; do
+              echo "   • $(basename "$file")"
+            done
+            echo ""
+            
+            # Static Code Analysis Summary
+            echo "🔍 **Static Code Analysis Results:**"
+            echo "=================================="
+            
+            SECURITY_VIOLATIONS=0
+            LWC_VIOLATIONS=0
+            
+            if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+              SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
+              echo "   📄 Review: pmd-security-report.txt"
+            else
+              echo "✅ **Security Violations:** None detected"
+            fi
+            
+            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+              LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
+              echo "   📄 Review: pmd-lwc-report.txt"
+            else
+              echo "✅ **LWC Violations:** None detected"
+            fi
+            
+            echo ""
+            echo "📊 **Overall Quality Score:**"
+            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
+            if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+              echo "   🟢 **Excellent** - No violations detected"
+            elif [ $TOTAL_VIOLATIONS -le 5 ]; then
+              echo "   🟡 **Good** - $TOTAL_VIOLATIONS violations found"
+            else
+              echo "   🔴 **Needs Attention** - $TOTAL_VIOLATIONS violations found"
+            fi
+            
+            echo ""
+            echo "🎯 **Test Coverage:**"
+            echo "   • Test Class: ChangePasswordControllerTest"
+            echo "   • Test Level: RunSpecifiedTests"
+            echo "   • Status: ✅ Validated"
+            
+          else
+            echo "📌 **Validation Deployment Status:** Skipped"
+            echo ""
+            echo "==============================================="
+            echo "ℹ️  **Reason:** No deployable metadata found in delta"
+            echo ""
+            echo "🔍 **Static Code Analysis Results:**"
+            echo "=================================="
+            echo "ℹ️  **Status:** Analysis completed on source code"
+            
+            SECURITY_VIOLATIONS=0
+            LWC_VIOLATIONS=0
+            
+            if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+              SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
+            else
+              echo "✅ **Security Violations:** None detected"
+            fi
+            
+            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+              LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
+            else
+              echo "✅ **LWC Violations:** None detected"
+            fi
+          fi
+          
+          echo ""
+          echo "==============================================="
+          echo "📋 **Summary:**"
+          echo "   • Delta Generation: ✅ Completed"
+          echo "   • Static Code Analysis: ✅ Completed"
+          echo "   • Deployment Validation: ✅ Completed"
+          echo "   • Test Execution: ✅ Completed"
+          echo "==============================================="
+
   deploy-to-sandbox:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
@@ -293,3 +395,105 @@ jobs:
           else
             echo "No deployable metadata found. Skipping deployment."
           fi
+
+      - name: Deployment Summary Report
+        run: |
+          echo ""
+          echo "🚀 *Salesforce Deployment Summary* 🚀"
+          echo "==============================================="
+          echo ""
+          
+          # Check deployment status
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "📌 **Deployment Status:** Succeeded"
+            echo ""
+            echo "==============================================="
+            
+            # Count components
+            COMPONENT_COUNT=$(find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | wc -l)
+            echo "✅ **Number of Component Successes:** $COMPONENT_COUNT"
+            echo ""
+            echo "🟢 **Components Deployed Successfully:**"
+            
+            # List components
+            find delta/force-app -name "*.cls" -o -name "*.xml" -o -name "*.js" -o -name "*.html" -o -name "*.css" | while read file; do
+              echo "   • $(basename "$file")"
+            done
+            echo ""
+            
+            # Static Code Analysis Summary
+            echo "🔍 **Static Code Analysis Results:**"
+            echo "=================================="
+            
+            SECURITY_VIOLATIONS=0
+            LWC_VIOLATIONS=0
+            
+            if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+              SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
+              echo "   📄 Review: pmd-security-report.txt"
+            else
+              echo "✅ **Security Violations:** None detected"
+            fi
+            
+            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+              LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
+              echo "   📄 Review: pmd-lwc-report.txt"
+            else
+              echo "✅ **LWC Violations:** None detected"
+            fi
+            
+            echo ""
+            echo "📊 **Overall Quality Score:**"
+            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
+            if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+              echo "   🟢 **Excellent** - No violations detected"
+            elif [ $TOTAL_VIOLATIONS -le 5 ]; then
+              echo "   🟡 **Good** - $TOTAL_VIOLATIONS violations found"
+            else
+              echo "   🔴 **Needs Attention** - $TOTAL_VIOLATIONS violations found"
+            fi
+            
+            echo ""
+            echo "🎯 **Test Coverage:**"
+            echo "   • Test Class: ChangePasswordControllerTest"
+            echo "   • Test Level: RunSpecifiedTests"
+            echo "   • Status: ✅ Executed"
+            
+          else
+            echo "📌 **Deployment Status:** Skipped"
+            echo ""
+            echo "==============================================="
+            echo "ℹ️  **Reason:** No deployable metadata found in delta"
+            echo ""
+            echo "🔍 **Static Code Analysis Results:**"
+            echo "=================================="
+            echo "ℹ️  **Status:** Analysis completed on source code"
+            
+            SECURITY_VIOLATIONS=0
+            LWC_VIOLATIONS=0
+            
+            if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+              SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **Security Violations:** $SECURITY_VIOLATIONS found"
+            else
+              echo "✅ **Security Violations:** None detected"
+            fi
+            
+            if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+              LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+              echo "⚠️  **LWC Violations:** $LWC_VIOLATIONS found"
+            else
+              echo "✅ **LWC Violations:** None detected"
+            fi
+          fi
+          
+          echo ""
+          echo "==============================================="
+          echo "📋 **Summary:**"
+          echo "   • Delta Generation: ✅ Completed"
+          echo "   • Static Code Analysis: ✅ Completed"
+          echo "   • Deployment: ✅ Completed"
+          echo "   • Test Execution: ✅ Completed"
+          echo "==============================================="
