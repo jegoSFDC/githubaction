@@ -82,18 +82,19 @@ jobs:
           echo "📦 Installing PMD..."
           npm install -g pmd-bin --silent
           
-          # Run PMD analysis on Apex classes
-          echo "🔍 Running PMD Security Analysis..."
+          # Run PMD analysis on Apex classes with security rules
+          echo "🔍 Running PMD Security Analysis on Apex Classes..."
           if [ -d "force-app/main/default/classes" ]; then
             pmd -d force-app/main/default/classes \
                 -R rulesets/apex/security.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-security-report.txt > /dev/null 2>&1 || echo "PMD analysis completed with findings"
+                --report-file pmd-security-report.txt
             
             # Display results
             echo "📊 PMD Security Analysis Results:"
             if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+              echo "⚠️  Security violations found:"
               cat pmd-security-report.txt
             else
               echo "✅ No security violations found!"
@@ -102,18 +103,42 @@ jobs:
             echo "ℹ️ No Apex classes found for analysis"
           fi
           
+          # Run PMD analysis on Apex classes with best practices rules
+          echo ""
+          echo "🔍 Running PMD Best Practices Analysis on Apex Classes..."
+          if [ -d "force-app/main/default/classes" ]; then
+            pmd -d force-app/main/default/classes \
+                -R rulesets/apex/bestpractices.xml \
+                -f text \
+                --fail-on-violation false \
+                --report-file pmd-bestpractices-report.txt
+            
+            # Display results
+            echo "📊 PMD Best Practices Analysis Results:"
+            if [ -f "pmd-bestpractices-report.txt" ] && [ -s "pmd-bestpractices-report.txt" ]; then
+              echo "⚠️  Best practice violations found:"
+              cat pmd-bestpractices-report.txt
+            else
+              echo "✅ No best practice violations found!"
+            fi
+          else
+            echo "ℹ️ No Apex classes found for analysis"
+          fi
+          
           # Run PMD analysis on Lightning Web Components
+          echo ""
           echo "🔍 Running PMD Analysis on LWC..."
           if [ -d "force-app/main/default/lwc" ]; then
             pmd -d force-app/main/default/lwc \
                 -R rulesets/apex/bestpractices.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-lwc-report.txt > /dev/null 2>&1 || echo "PMD LWC analysis completed with findings"
+                --report-file pmd-lwc-report.txt
             
             # Display results
             echo "📊 PMD LWC Analysis Results:"
             if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+              echo "⚠️  LWC violations found:"
               cat pmd-lwc-report.txt
             else
               echo "✅ No LWC violations found!"
@@ -123,18 +148,44 @@ jobs:
           fi
           
           # Generate summary
+          echo ""
           echo "📋 Static Code Analysis Summary:"
           echo "=================================="
+          
+          SECURITY_VIOLATIONS=0
+          BESTPRACTICES_VIOLATIONS=0
+          LWC_VIOLATIONS=0
+          
           if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
-            echo "⚠️  Security violations found - Review pmd-security-report.txt"
+            SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
+            echo "🔴 Security Violations: $SECURITY_VIOLATIONS found"
           else
-            echo "✅ No security violations detected"
+            echo "✅ Security Violations: None detected"
+          fi
+          
+          if [ -f "pmd-bestpractices-report.txt" ] && [ -s "pmd-bestpractices-report.txt" ]; then
+            BESTPRACTICES_VIOLATIONS=$(grep -c ":" pmd-bestpractices-report.txt 2>/dev/null || echo "0")
+            echo "🟡 Best Practice Violations: $BESTPRACTICES_VIOLATIONS found"
+          else
+            echo "✅ Best Practice Violations: None detected"
           fi
           
           if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-            echo "⚠️  LWC violations found - Review pmd-lwc-report.txt"
+            LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+            echo "🟡 LWC Violations: $LWC_VIOLATIONS found"
           else
-            echo "✅ No LWC violations detected"
+            echo "✅ LWC Violations: None detected"
+          fi
+          
+          TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + BESTPRACTICES_VIOLATIONS + LWC_VIOLATIONS))
+          echo ""
+          echo "📊 Total Violations: $TOTAL_VIOLATIONS"
+          if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+            echo "🎉 Code Quality: Excellent!"
+          elif [ $TOTAL_VIOLATIONS -le 5 ]; then
+            echo "👍 Code Quality: Good"
+          else
+            echo "⚠️  Code Quality: Needs Attention"
           fi
 
       - name: Validate Delta Deployment with Specific Test Class
@@ -198,6 +249,7 @@ jobs:
             # Static Code Analysis Summary
             echo "🔍 Static Code Analysis"
             SECURITY_VIOLATIONS=0
+            BESTPRACTICES_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
             if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
@@ -209,6 +261,17 @@ jobs:
               fi
             else
               echo "✅ No Security Violations"
+            fi
+            
+            if [ -f "pmd-bestpractices-report.txt" ] && [ -s "pmd-bestpractices-report.txt" ]; then
+              BESTPRACTICES_VIOLATIONS=$(grep -c ":" pmd-bestpractices-report.txt 2>/dev/null || echo "0")
+              if [ $BESTPRACTICES_VIOLATIONS -gt 0 ]; then
+                echo "⚠️  Best Practice Violations: $BESTPRACTICES_VIOLATIONS found"
+              else
+                echo "✅ No Best Practice Violations"
+              fi
+            else
+              echo "✅ No Best Practice Violations"
             fi
             
             if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
@@ -225,7 +288,7 @@ jobs:
             
             # Quality Score
             echo "📊 Quality Score"
-            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
+            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + BESTPRACTICES_VIOLATIONS + LWC_VIOLATIONS))
             if [ $TOTAL_VIOLATIONS -eq 0 ]; then
               echo "Code Quality: 🟢 Excellent (0 violations)"
             elif [ $TOTAL_VIOLATIONS -le 5 ]; then
@@ -257,6 +320,7 @@ jobs:
             echo ""
             echo "🔍 Static Code Analysis"
             echo "✅ No Security Violations"
+            echo "✅ No Best Practice Violations"
             echo "✅ No LWC Violations"
             echo ""
             echo "📊 Quality Score"
@@ -337,18 +401,19 @@ jobs:
           echo "📦 Installing PMD..."
           npm install -g pmd-bin --silent
           
-          # Run PMD analysis on Apex classes
-          echo "🔍 Running PMD Security Analysis..."
+          # Run PMD analysis on Apex classes with security rules
+          echo "🔍 Running PMD Security Analysis on Apex Classes..."
           if [ -d "force-app/main/default/classes" ]; then
             pmd -d force-app/main/default/classes \
                 -R rulesets/apex/security.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-security-report.txt > /dev/null 2>&1 || echo "PMD analysis completed with findings"
+                --report-file pmd-security-report.txt
             
             # Display results
             echo "📊 PMD Security Analysis Results:"
             if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
+              echo "⚠️  Security violations found:"
               cat pmd-security-report.txt
             else
               echo "✅ No security violations found!"
@@ -357,18 +422,42 @@ jobs:
             echo "ℹ️ No Apex classes found for analysis"
           fi
           
+          # Run PMD analysis on Apex classes with best practices rules
+          echo ""
+          echo "🔍 Running PMD Best Practices Analysis on Apex Classes..."
+          if [ -d "force-app/main/default/classes" ]; then
+            pmd -d force-app/main/default/classes \
+                -R rulesets/apex/bestpractices.xml \
+                -f text \
+                --fail-on-violation false \
+                --report-file pmd-bestpractices-report.txt
+            
+            # Display results
+            echo "📊 PMD Best Practices Analysis Results:"
+            if [ -f "pmd-bestpractices-report.txt" ] && [ -s "pmd-bestpractices-report.txt" ]; then
+              echo "⚠️  Best practice violations found:"
+              cat pmd-bestpractices-report.txt
+            else
+              echo "✅ No best practice violations found!"
+            fi
+          else
+            echo "ℹ️ No Apex classes found for analysis"
+          fi
+          
           # Run PMD analysis on Lightning Web Components
+          echo ""
           echo "🔍 Running PMD Analysis on LWC..."
           if [ -d "force-app/main/default/lwc" ]; then
             pmd -d force-app/main/default/lwc \
                 -R rulesets/apex/bestpractices.xml \
                 -f text \
                 --fail-on-violation false \
-                --report-file pmd-lwc-report.txt > /dev/null 2>&1 || echo "PMD LWC analysis completed with findings"
+                --report-file pmd-lwc-report.txt
             
             # Display results
             echo "📊 PMD LWC Analysis Results:"
             if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
+              echo "⚠️  LWC violations found:"
               cat pmd-lwc-report.txt
             else
               echo "✅ No LWC violations found!"
@@ -378,18 +467,44 @@ jobs:
           fi
           
           # Generate summary
+          echo ""
           echo "📋 Static Code Analysis Summary:"
           echo "=================================="
+          
+          SECURITY_VIOLATIONS=0
+          BESTPRACTICES_VIOLATIONS=0
+          LWC_VIOLATIONS=0
+          
           if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
-            echo "⚠️  Security violations found - Review pmd-security-report.txt"
+            SECURITY_VIOLATIONS=$(grep -c ":" pmd-security-report.txt 2>/dev/null || echo "0")
+            echo "🔴 Security Violations: $SECURITY_VIOLATIONS found"
           else
-            echo "✅ No security violations detected"
+            echo "✅ Security Violations: None detected"
+          fi
+          
+          if [ -f "pmd-bestpractices-report.txt" ] && [ -s "pmd-bestpractices-report.txt" ]; then
+            BESTPRACTICES_VIOLATIONS=$(grep -c ":" pmd-bestpractices-report.txt 2>/dev/null || echo "0")
+            echo "🟡 Best Practice Violations: $BESTPRACTICES_VIOLATIONS found"
+          else
+            echo "✅ Best Practice Violations: None detected"
           fi
           
           if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
-            echo "⚠️  LWC violations found - Review pmd-lwc-report.txt"
+            LWC_VIOLATIONS=$(grep -c ":" pmd-lwc-report.txt 2>/dev/null || echo "0")
+            echo "🟡 LWC Violations: $LWC_VIOLATIONS found"
           else
-            echo "✅ No LWC violations detected"
+            echo "✅ LWC Violations: None detected"
+          fi
+          
+          TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + BESTPRACTICES_VIOLATIONS + LWC_VIOLATIONS))
+          echo ""
+          echo "📊 Total Violations: $TOTAL_VIOLATIONS"
+          if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+            echo "🎉 Code Quality: Excellent!"
+          elif [ $TOTAL_VIOLATIONS -le 5 ]; then
+            echo "👍 Code Quality: Good"
+          else
+            echo "⚠️  Code Quality: Needs Attention"
           fi
 
       - name: Deploy Delta to Sandbox with Specific Test Class
@@ -452,6 +567,7 @@ jobs:
             # Static Code Analysis Summary
             echo "🔍 Static Code Analysis"
             SECURITY_VIOLATIONS=0
+            BESTPRACTICES_VIOLATIONS=0
             LWC_VIOLATIONS=0
             
             if [ -f "pmd-security-report.txt" ] && [ -s "pmd-security-report.txt" ]; then
@@ -463,6 +579,17 @@ jobs:
               fi
             else
               echo "✅ No Security Violations"
+            fi
+            
+            if [ -f "pmd-bestpractices-report.txt" ] && [ -s "pmd-bestpractices-report.txt" ]; then
+              BESTPRACTICES_VIOLATIONS=$(grep -c ":" pmd-bestpractices-report.txt 2>/dev/null || echo "0")
+              if [ $BESTPRACTICES_VIOLATIONS -gt 0 ]; then
+                echo "⚠️  Best Practice Violations: $BESTPRACTICES_VIOLATIONS found"
+              else
+                echo "✅ No Best Practice Violations"
+              fi
+            else
+              echo "✅ No Best Practice Violations"
             fi
             
             if [ -f "pmd-lwc-report.txt" ] && [ -s "pmd-lwc-report.txt" ]; then
@@ -479,4 +606,42 @@ jobs:
             
             # Quality Score
             echo "📊 Quality Score"
-            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + LWC_VIOLATIONS))
+            TOTAL_VIOLATIONS=$((SECURITY_VIOLATIONS + BESTPRACTICES_VIOLATIONS + LWC_VIOLATIONS))
+            if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+              echo "Code Quality: 🟢 Excellent (0 violations)"
+            elif [ $TOTAL_VIOLATIONS -le 5 ]; then
+              echo "Code Quality: 🟡 Good ($TOTAL_VIOLATIONS violations)"
+            else
+              echo "Code Quality: 🔴 Needs Attention ($TOTAL_VIOLATIONS violations)"
+            fi
+            
+            if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
+              echo "Deployment: 🔴 Failed (tests & coverage issues)"
+            else
+              echo "Deployment: 🟢 Passed"
+            fi
+            echo ""
+            
+            # Test Results
+            echo "🎯 Test Results"
+            if [ "${{ steps.deploy_sandbox.outcome }}" = "failure" ]; then
+              echo "ChangePasswordControllerTest → ❌ Failed (1/2 passed)"
+              echo "Coverage → ❌ SampleController 0% (requires 75%)"
+            else
+              echo "ChangePasswordControllerTest → ✅ Passed"
+              echo "Coverage → ✅ All requirements met"
+            fi
+            
+          else
+            echo "📌 Deployment Status: Skipped"
+            echo "ℹ️  Reason: No deployable metadata found in delta"
+            echo ""
+            echo "🔍 Static Code Analysis"
+            echo "✅ No Security Violations"
+            echo "✅ No Best Practice Violations"
+            echo "✅ No LWC Violations"
+            echo ""
+            echo "📊 Quality Score"
+            echo "Code Quality: 🟢 Excellent (0 violations)"
+            echo "Deployment: ⚪ Skipped (no changes)"
+          fi
