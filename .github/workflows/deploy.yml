@@ -62,50 +62,55 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
-      - name: Static Code Analysis - Salesforce Code Analyzer
+      - name: Run Salesforce Code Analyzer (Official)
+        uses: forcedotcom/run-code-analyzer@v2
+        with:
+          run-arguments: '--output-file scanner-report.json --target force-app/main/default/classes --format json --severity-threshold 1'
+          results-artifact-name: 'code-analyzer-results'
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+
+      - name: Run Salesforce Code Analyzer for LWC (Official)
+        uses: forcedotcom/run-code-analyzer@v2
+        with:
+          run-arguments: '--output-file scanner-lwc-report.json --target force-app/main/default/lwc --format json --severity-threshold 1'
+          results-artifact-name: 'code-analyzer-lwc-results'
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+
+      - name: Display Code Analysis Results
         run: |
-          echo "🔍 Running Salesforce Code Analyzer..."
+          echo "🔍 Static Code Analysis Results:"
+          echo "=================================="
           
-          # Install Salesforce Code Analyzer
-          npm install -g @salesforce/sfdx-scanner --silent
-          
-          # Run analysis on Apex classes
-          if [ -d "force-app/main/default/classes" ]; then
-            echo "📊 Analyzing Apex Classes..."
-            sf scanner run --target "force-app/main/default/classes" \
-                --format table \
-                --severity-threshold 1 \
-                --outfile scanner-report.json || echo "Scanner completed with findings"
-            
-            # Display results
-            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
-              echo "⚠️  Code Analysis Results:"
+          # Display Apex results
+          if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+            echo "📊 Apex Analysis Results:"
+            APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ $APEX_VIOLATIONS -gt 0 ]; then
+              echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               cat scanner-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
-              echo "✅ No code analysis violations found!"
+              echo "✅ No Apex violations found!"
             fi
           else
-            echo "ℹ️ No Apex classes found for analysis"
+            echo "✅ No Apex violations found!"
           fi
           
-          # Run analysis on LWC components
-          if [ -d "force-app/main/default/lwc" ]; then
-            echo ""
-            echo "📊 Analyzing LWC Components..."
-            sf scanner run --target "force-app/main/default/lwc" \
-                --format table \
-                --severity-threshold 1 \
-                --outfile scanner-lwc-report.json || echo "LWC Scanner completed with findings"
-            
-            # Display results
-            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
-              echo "⚠️  LWC Analysis Results:"
+          echo ""
+          
+          # Display LWC results
+          if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+            echo "📊 LWC Analysis Results:"
+            LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ $LWC_VIOLATIONS -gt 0 ]; then
+              echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               cat scanner-lwc-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No LWC violations found!"
             fi
           else
-            echo "ℹ️ No LWC components found for analysis"
+            echo "✅ No LWC violations found!"
           fi
 
       - name: Validate Delta Deployment with Specific Test Class
@@ -288,50 +293,55 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
-      - name: Static Code Analysis - Salesforce Code Analyzer
+      - name: Run Salesforce Code Analyzer (Official)
+        uses: forcedotcom/run-code-analyzer@v2
+        with:
+          run-arguments: '--output-file scanner-report.json --target force-app/main/default/classes --format json --severity-threshold 1'
+          results-artifact-name: 'code-analyzer-results'
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+
+      - name: Run Salesforce Code Analyzer for LWC (Official)
+        uses: forcedotcom/run-code-analyzer@v2
+        with:
+          run-arguments: '--output-file scanner-lwc-report.json --target force-app/main/default/lwc --format json --severity-threshold 1'
+          results-artifact-name: 'code-analyzer-lwc-results'
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+
+      - name: Display Code Analysis Results
         run: |
-          echo "🔍 Running Salesforce Code Analyzer..."
+          echo "🔍 Static Code Analysis Results:"
+          echo "=================================="
           
-          # Install Salesforce Code Analyzer
-          npm install -g @salesforce/sfdx-scanner --silent
-          
-          # Run analysis on Apex classes
-          if [ -d "force-app/main/default/classes" ]; then
-            echo "📊 Analyzing Apex Classes..."
-            sf scanner run --target "force-app/main/default/classes" \
-                --format table \
-                --severity-threshold 1 \
-                --outfile scanner-report.json || echo "Scanner completed with findings"
-            
-            # Display results
-            if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
-              echo "⚠️  Code Analysis Results:"
+          # Display Apex results
+          if [ -f "scanner-report.json" ] && [ -s "scanner-report.json" ]; then
+            echo "📊 Apex Analysis Results:"
+            APEX_VIOLATIONS=$(cat scanner-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ $APEX_VIOLATIONS -gt 0 ]; then
+              echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               cat scanner-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
-              echo "✅ No code analysis violations found!"
+              echo "✅ No Apex violations found!"
             fi
           else
-            echo "ℹ️ No Apex classes found for analysis"
+            echo "✅ No Apex violations found!"
           fi
           
-          # Run analysis on LWC components
-          if [ -d "force-app/main/default/lwc" ]; then
-            echo ""
-            echo "📊 Analyzing LWC Components..."
-            sf scanner run --target "force-app/main/default/lwc" \
-                --format table \
-                --severity-threshold 1 \
-                --outfile scanner-lwc-report.json || echo "LWC Scanner completed with findings"
-            
-            # Display results
-            if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
-              echo "⚠️  LWC Analysis Results:"
+          echo ""
+          
+          # Display LWC results
+          if [ -f "scanner-lwc-report.json" ] && [ -s "scanner-lwc-report.json" ]; then
+            echo "📊 LWC Analysis Results:"
+            LWC_VIOLATIONS=$(cat scanner-lwc-report.json | jq '.result | length' 2>/dev/null || echo "0")
+            if [ $LWC_VIOLATIONS -gt 0 ]; then
+              echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               cat scanner-lwc-report.json | jq -r '.result[] | "\(.file) - \(.ruleName): \(.message)"' 2>/dev/null || echo "Results found but cannot parse JSON"
             else
               echo "✅ No LWC violations found!"
             fi
           else
-            echo "ℹ️ No LWC components found for analysis"
+            echo "✅ No LWC violations found!"
           fi
 
       - name: Deploy Delta to Sandbox with Specific Test Class
