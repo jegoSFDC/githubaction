@@ -2,9 +2,11 @@ name: Salesforce CI/CD
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   pr-validation:
@@ -13,7 +15,7 @@ jobs:
     if: github.event_name == 'pull_request'
     
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -28,40 +30,28 @@ jobs:
           npm install -g @salesforce/cli
           sf --version
 
-      - name: Install SFDX Git Delta
+      - name: Authenticate Salesforce (PR Validation)
+        env:
+          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
+        run: |
+          echo "$SF_AUTH_URL" > authFile.txt
+          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+
+      - name: Create Delta Output Directory
+        run: mkdir -p delta
+
+      - name: Install sfdx-git-delta Plugin
         run: |
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
-      - name: Authenticate to Salesforce
-        env:
-          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
+      - name: Generate Delta using sfdx-git-delta
         run: |
-          echo "$SF_AUTH_URL" > authfile.txt
-          sf org login sfdx-url --sfdx-url-file authfile.txt --set-default --alias devorg
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch origin main
+          sf sgd source delta --to HEAD --from origin/main --output delta --generate-delta
 
-      - name: Generate Delta Package
-        run: |
-          # Create delta directory (CRITICAL FIX)
-          mkdir -p delta
-          
-          BASE=origin/${{ github.event.pull_request.base.ref }}
-          HEAD=${{ github.event.pull_request.head.sha }}
-          echo "Comparing $BASE -> $HEAD"
-          
-          # Fetch base branch for comparison
-          git fetch origin ${{ github.event.pull_request.base.ref }} --no-tags --prune || true
-          
-          # Use explicit source directory for better metadata detection
-          sf sgd source delta \
-            --from "$BASE" \
-            --to "$HEAD" \
-            --output delta \
-            --generate-delta \
-            -a 58.0 \
-            -s force-app/main/default
-
-      - name: Debug Delta Contents
+      - name: Show Generated Package.xml Files
         run: |
           echo "=== Delta Directory Structure ==="
           find delta -type f | head -20 || echo "No delta files found"
@@ -71,9 +61,6 @@ jobs:
           echo ""
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
-          echo ""
-          echo "=== Git Diff for Debug ==="
-          git diff --name-only origin/${{ github.event.pull_request.base.ref }} ${{ github.event.pull_request.head.sha }} || true
 
       - name: Static Code Analysis - Security Scan
         run: |
@@ -150,49 +137,24 @@ jobs:
             echo "✅ No LWC violations detected"
           fi
 
-      - name: Validate Delta Deployment (dry-run)
+      - name: Validate Delta Deployment with Specific Test Class
         id: validate_deploy
         run: |
-          # Check for destructive changes
-          DC_FILE=$(find delta -name 'destructiveChanges*.xml' -print -quit || true)
-          
-          if [ -n "$DC_FILE" ]; then
-            echo "🚨 Destructive changes found: $DC_FILE"
-            # Find or create package.xml
-            PKG_FILE=$(find delta -name package.xml -print -quit || true)
-            if [ -z "$PKG_FILE" ]; then
-              echo "Creating minimal package.xml"
-              mkdir -p delta/package
-              echo '<?xml version="1.0" encoding="UTF-8"?>' > delta/package/package.xml
-              echo '<Package xmlns="http://soap.sforce.com/2006/04/metadata">' >> delta/package/package.xml
-              echo '  <version>58.0</version>' >> delta/package/package.xml
-              echo '</Package>' >> delta/package/package.xml
-              PKG_FILE=delta/package/package.xml
-            fi
-            
-            echo "Deploying with destructive changes..."
-            sf project deploy start \
-              --manifest "$PKG_FILE" \
-              --post-destructive-changes "$DC_FILE" \
-              --target-org devorg \
-              --dry-run \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
-          elif [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "✅ Regular changes found in delta/force-app"
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "Delta found. Proceeding with validation..."
             sf project deploy start \
               --source-dir delta/force-app \
-              --target-org devorg \
+              --target-org sandbox \
               --dry-run \
               --test-level RunSpecifiedTests \
               --tests "ChangePasswordControllerTest" \
               --verbose
           else
-            echo "ℹ️ No deployable changes found in delta"
+            echo "No deployable metadata found in delta. Skipping validation."
           fi
 
       - name: Deployment Summary Report
+        if: always()
         run: |
           echo ""
           echo "🚀 *Salesforce Validation Deployment Summary* 🚀"
@@ -368,9 +330,9 @@ jobs:
     name: Deploy to Sandbox
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -385,36 +347,28 @@ jobs:
           npm install -g @salesforce/cli
           sf --version
 
-      - name: Install SFDX Git Delta
+      - name: Authenticate Salesforce (Deploy)
+        env:
+          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
+        run: |
+          echo "$SF_AUTH_URL" > authFile.txt
+          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+
+      - name: Create Delta Output Directory
+        run: mkdir -p delta
+
+      - name: Install sfdx-git-delta Plugin
         run: |
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
-      - name: Authenticate to Salesforce
-        env:
-          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
+      - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
         run: |
-          echo "$SF_AUTH_URL" > authfile.txt
-          sf org login sfdx-url --sfdx-url-file authfile.txt --set-default --alias sandbox
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch origin main
+          sf sgd source delta --to HEAD --from HEAD~1 --output delta --generate-delta
 
-      - name: Generate Delta Package
-        run: |
-          # Create delta directory (CRITICAL FIX)
-          mkdir -p delta
-          
-          echo "Comparing HEAD~1 -> HEAD"
-          git fetch origin main --no-tags --prune || true
-          
-          # Use explicit source directory for better metadata detection
-          sf sgd source delta \
-            --from HEAD~1 \
-            --to HEAD \
-            --output delta \
-            --generate-delta \
-            -a 58.0 \
-            -s force-app/main/default
-
-      - name: Debug Delta Contents
+      - name: Show Generated Package.xml Files
         run: |
           echo "=== Delta Directory Structure ==="
           find delta -type f | head -20 || echo "No delta files found"
@@ -424,9 +378,6 @@ jobs:
           echo ""
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
-          echo ""
-          echo "=== Git Diff for Debug ==="
-          git diff --name-only HEAD~1 HEAD || true
 
       - name: Static Code Analysis - Security Scan
         run: |
@@ -503,36 +454,11 @@ jobs:
             echo "✅ No LWC violations detected"
           fi
 
-      - name: Deploy Delta to Sandbox
+      - name: Deploy Delta to Sandbox with Specific Test Class
         id: deploy_sandbox
         run: |
-          # Check for destructive changes
-          DC_FILE=$(find delta -name 'destructiveChanges*.xml' -print -quit || true)
-          
-          if [ -n "$DC_FILE" ]; then
-            echo "🚨 Destructive changes found: $DC_FILE"
-            # Find or create package.xml
-            PKG_FILE=$(find delta -name package.xml -print -quit || true)
-            if [ -z "$PKG_FILE" ]; then
-              echo "Creating minimal package.xml"
-              mkdir -p delta/package
-              echo '<?xml version="1.0" encoding="UTF-8"?>' > delta/package/package.xml
-              echo '<Package xmlns="http://soap.sforce.com/2006/04/metadata">' >> delta/package/package.xml
-              echo '  <version>58.0</version>' >> delta/package/package.xml
-              echo '</Package>' >> delta/package/package.xml
-              PKG_FILE=delta/package/package.xml
-            fi
-            
-            echo "Deploying with destructive changes..."
-            sf project deploy start \
-              --manifest "$PKG_FILE" \
-              --post-destructive-changes "$DC_FILE" \
-              --target-org sandbox \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
-          elif [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "✅ Regular changes found in delta/force-app"
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "Deployable delta found. Deploying..."
             sf project deploy start \
               --source-dir delta/force-app \
               --target-org sandbox \
@@ -540,10 +466,11 @@ jobs:
               --tests "ChangePasswordControllerTest" \
               --verbose
           else
-            echo "ℹ️ No deployable changes found in delta"
+            echo "No deployable metadata found. Skipping deployment."
           fi
 
       - name: Deployment Summary Report
+        if: always()
         run: |
           echo ""
           echo "🚀 *Salesforce Deployment Summary* 🚀"
@@ -714,13 +641,3 @@ jobs:
             echo "   • Test Execution: ✅ Completed"
           fi
           echo "==============================================="
-
-      - name: Post-Deployment Validation
-        run: |
-          echo "🔍 Running post-deployment validation..."
-          sf apex run test \
-            --target-org sandbox \
-            --test-level RunSpecifiedTests \
-            --tests "ChangePasswordControllerTest" \
-            --result-format human \
-            --verbose
