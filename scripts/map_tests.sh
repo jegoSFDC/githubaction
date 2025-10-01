@@ -168,7 +168,11 @@ PY
   fi
 
   # Find actual .cls files in delta
-  APEX_CLASSES=$(find delta/force-app/main/default/classes -name '*.cls' -maxdepth 1 -exec basename {} .cls \; | tr '\n' ' ' | sed 's/ *$//')
+  if [ -d "delta/force-app/main/default/classes" ]; then
+    APEX_CLASSES=$(find delta/force-app/main/default/classes -name '*.cls' -maxdepth 1 -exec basename {} .cls \; 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+  else
+    APEX_CLASSES=""
+  fi
 
   if [ -n "$APEX_CLASSES" ]; then
     classify_and_map_tests "$APEX_CLASSES"

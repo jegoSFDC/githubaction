@@ -138,6 +138,14 @@ PY
     echo "  • Package.xml exists but contains no metadata components"
     echo "  • This indicates only script/YAML changes (no deployment needed)"
     echo "  • Pipeline will skip deployment validation stages"
+    echo ""
+    echo "📄 Package.xml Contents:"
+    cat delta/package/package.xml
+    echo ""
+    
+    # List modified files that triggered this run
+    echo "📝 Files Modified in This Change:"
+    git diff --name-only "origin/$TARGET_BRANCH" HEAD | head -20 || echo "  (unable to determine changed files)"
 
     # Set deployment flag for downstream scripts
     echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
@@ -149,6 +157,11 @@ else
   echo "  • No deployment package generated"
   echo "  • This indicates only script/YAML changes or no changes to deploy"
   echo "  • Pipeline will skip deployment validation stages"
+  echo ""
+  
+  # List modified files that triggered this run
+  echo "📝 Files Modified in This Change:"
+  git diff --name-only "origin/$TARGET_BRANCH" HEAD | head -20 || echo "  (unable to determine changed files)"
 
   # Set deployment flag for downstream scripts
   echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
