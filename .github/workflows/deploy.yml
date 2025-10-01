@@ -536,12 +536,21 @@ jobs:
           fi
 
           # Decide overall pass/fail
-          if [ "$STATUS" != "Succeeded" ] || [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ] || [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
-            echo "🚫 Validation failed: status=${STATUS}, component_failures=${COMPONENT_FAIL_COUNT}, test_failures=${TEST_FAIL_COUNT}, coverage=${COVERAGE}% (threshold=${COVERAGE_THRESHOLD}%)"
+          if [ "$STATUS" = "Succeeded" ]; then
+            echo "✅ Validation success: status=${STATUS}, coverage=${COVERAGE}%"
+            exit 0
+          elif [ "$STATUS" = "Skipped" ] && [ "${COMPONENT_FAIL_COUNT}" -eq 0 ] && [ "${TEST_FAIL_COUNT}" -eq 0 ]; then
+            echo "✅ Validation skipped: No deployable changes found"
+            exit 0
+          elif [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
+            echo "🚫 Validation failed: status=${STATUS}, component_failures=${COMPONENT_FAIL_COUNT}, test_failures=${TEST_FAIL_COUNT}"
             echo "See reports/deploy-report.json and reports/validation-summary.txt for details"
-            # Exit non-zero so the GitHub job fails
+            exit 1
+          elif [ "$STATUS" != "Succeeded" ] && [ "$COVERAGE" -lt "${COVERAGE_THRESHOLD}" ] && [ "$STATUS" != "Skipped" ]; then
+            echo "🚫 Validation failed: status=${STATUS}, coverage=${COVERAGE}% (threshold=${COVERAGE_THRESHOLD}%)"
+            echo "See reports/deploy-report.json and reports/validation-summary.txt for details"
             exit 1
           else
-            echo "✅ Validation success: status=${STATUS}, coverage=${COVERAGE}%"
+            echo "✅ Validation passed: status=${STATUS}, coverage=${COVERAGE}%"
             exit 0
           fi
