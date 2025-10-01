@@ -381,7 +381,7 @@ jobs:
               echo ""
               echo "🧪 Test Failures (full details):"
               jq -r '.result.details.runTestResult.failures[]? |
-                (.message |= (gsub("<br>"; "\n")) ) |
+                (.message |= (gsub("<br>"; "\n"))) |
                 "\(.name): \(.message) (Method: \(.methodName // "unknown"))"' reports/deploy-report.json 2>/dev/null || true
             fi
 
@@ -405,13 +405,35 @@ jobs:
               fi
             fi
 
-            # === PRINT per-class coverage (only numeric values) ===
+            # === PRINT per-class coverage (detailed, grouped) ===
             if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
               echo ""
-              echo "📊 Per-class coverage (numeric only):"
+              echo "📊 Per-class coverage (detailed):"
+
+              # Numeric percentages (non-null)
+              echo "  • Classes with numeric coverage:"
               jq -r '.result.details.runTestResult.codeCoverage[]? |
                 select(.coveredPercent != null) |
-                "  - \(.name): \(.coveredPercent)%"' reports/deploy-report.json 2>/dev/null | head -20 || true
+                "    - \(.name): \(.coveredPercent)%"' reports/deploy-report.json 2>/dev/null | sed -n '1,20p' || true
+
+              # Classes explicitly at 0%
+              ZERO_LIST=$(jq -r '.result.details.runTestResult.codeCoverage[]? |
+                select(.coveredPercent == 0) | .name' reports/deploy-report.json 2>/dev/null || true)
+              if [ -n "$ZERO_LIST" ]; then
+                echo ""
+                echo "  • Classes reporting 0% coverage (need tests):"
+                echo "$ZERO_LIST" | sed 's/^/    - /'
+              fi
+
+              # Classes with no coverage reported (null)
+              NULL_LIST=$(jq -r '.result.details.runTestResult.codeCoverage[]? |
+                select(.coveredPercent == null) | .name' reports/deploy-report.json 2>/dev/null || true)
+              if [ -n "$NULL_LIST" ]; then
+                echo ""
+                echo "  • Classes with NO coverage reported (null) — likely not exercised by tests or missing metadata:"
+                echo "$NULL_LIST" | sed 's/^/    - /'
+              fi
+
             fi
 
           else
@@ -517,17 +539,34 @@ jobs:
                     fi
                   fi
 
-                  # Per-class numeric coverage
+                  # Per-class numeric coverage + explicit 0% / null lists
                   if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json > /dev/null 2>&1; then
                     echo "📊 **Coverage Achieved (average):**"
                     AVG=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
                     AVG=${AVG%.*}
                     echo "   • ${AVG}%"
-                    if jq -e '.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent != null)' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo "   **Per-Class (numeric only):**"
-                      jq -r '.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent != null) | "     • \(.name): \(.coveredPercent)%"' reports/deploy-report.json 2>/dev/null | head -10
+                    echo ""
+                    echo "📋 **Coverage breakdown (classes):**"
+
+                    echo ""
+                    echo "  • Classes with numeric coverage:"
+                    jq -r '.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent != null) | "    - \(.name): \(.coveredPercent)%"' reports/deploy-report.json 2>/dev/null | sed -n '1,30p' || true
+
+                    ZERO_LIST=$(jq -r '.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent == 0) | .name' reports/deploy-report.json 2>/dev/null || true)
+                    if [ -n "$ZERO_LIST" ]; then
                       echo ""
+                      echo "  • Classes reporting 0% coverage (need tests):"
+                      echo "$ZERO_LIST" | sed 's/^/    - /'
                     fi
+
+                    NULL_LIST=$(jq -r '.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent == null) | .name' reports/deploy-report.json 2>/dev/null || true)
+                    if [ -n "$NULL_LIST" ]; then
+                      echo ""
+                      echo "  • Classes with NO coverage reported (null) — likely not exercised by tests or missing metadata:"
+                      echo "$NULL_LIST" | sed 's/^/    - /'
+                    fi
+
+                    echo ""
                   fi
 
                   # Show only problematic componentSuccesses (if any)
