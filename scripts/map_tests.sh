@@ -39,21 +39,37 @@ fi
 # Extract ONLY Apex classes from package.xml (not LWC or other components)
 echo "📦 Scanning package.xml for Apex classes..."
 
-# Use awk to extract only members within ApexClass or ApexTrigger types
-DELTA_APEX_CLASSES=$(awk '
-  /<types>/,/<\/types>/ {
-    if (/<name>(ApexClass|ApexTrigger)<\/name>/) {
-      in_apex = 1
-    }
-    if (in_apex && /<members>/) {
-      match($0, /<members>(.*)<\/members>/, arr)
-      if (arr[1]) print arr[1]
-    }
-    if (/<\/types>/) {
-      in_apex = 0
-    }
-  }
-' delta/package/package.xml 2>/dev/null | tr '\n' ' ' | sed 's/ *$//' || echo "")
+# Use Python for reliable XML parsing to get only ApexClass and ApexTrigger members
+DELTA_APEX_CLASSES=$(python3 - <<'PYTHON'
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+package_path = Path("delta/package/package.xml")
+apex_classes = []
+
+if package_path.exists():
+    try:
+        tree = ET.parse(package_path)
+        ns = {"md": "http://soap.sforce.com/2006/04/metadata"}
+        root = tree.getroot()
+        
+        # Find all <types> elements
+        for types in root.findall('md:types', ns):
+            name = types.findtext('md:name', default='', namespaces=ns)
+            
+            # Only process ApexClass and ApexTrigger types
+            if name in ["ApexClass", "ApexTrigger"]:
+                for members in types.findall('md:members', ns):
+                    member_name = (members.text or '').strip()
+                    if member_name:
+                        apex_classes.append(member_name)
+    except Exception:
+        pass
+
+# Output space-separated list
+print(' '.join(apex_classes))
+PYTHON
+)
 
 if [ -z "$DELTA_APEX_CLASSES" ]; then
   echo "ℹ️  No Apex classes found in package.xml"

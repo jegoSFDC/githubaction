@@ -265,7 +265,10 @@ elif [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
   
 elif [ "$STATUS" != "Succeeded" ] && [ "$COVERAGE" -lt "${COVERAGE_THRESHOLD}" ] && [ "$STATUS" != "Skipped" ]; then
   echo "❌ Validation: FAILED"
+  echo "   • Status: ${STATUS}"
   echo "   • Coverage: ${COVERAGE}% (required: ${COVERAGE_THRESHOLD}%)"
+  echo "   • Component Failures: ${COMPONENT_FAIL_COUNT}"
+  echo "   • Test Failures: ${TEST_FAIL_COUNT}"
   echo ""
   echo "💥 QUALITY GATES FAILED - Increase test coverage"
   exit 1
