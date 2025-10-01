@@ -92,6 +92,7 @@ jobs:
           sf plugins --core
 
       - name: Generate Deployment Delta Package
+        id: generate-delta
         env:
           TARGET_BRANCH: ${{ github.base_ref || 'main' }}
         run: ./scripts/generate_delta.sh
@@ -106,11 +107,9 @@ jobs:
         id: run-code-analyzer-apex
         uses: forcedotcom/run-code-analyzer@v2
         if: |
-          github.event.head_commit.modified != null &&
-          (contains(github.event.head_commit.modified, 'ApexClass') ||
-           contains(github.event.head_commit.modified, 'ApexTrigger') ||
-           contains(github.event.head_commit.added, 'ApexClass') ||
-           contains(github.event.head_commit.added, 'ApexTrigger'))
+          always() && 
+          (steps.generate-delta.outcome == 'success' || steps.generate-delta.outcome == 'failure') &&
+          (contains(steps.generate-delta.outputs.has-apex, 'true'))
         with:
           run-arguments: >
             --target force-app/main/default/classes
@@ -124,9 +123,9 @@ jobs:
         id: run-code-analyzer-lwc
         uses: forcedotcom/run-code-analyzer@v2
         if: |
-          github.event.head_commit.modified != null &&
-          (contains(github.event.head_commit.modified, 'LightningComponentBundle') ||
-           contains(github.event.head_commit.added, 'LightningComponentBundle'))
+          always() && 
+          (steps.generate-delta.outcome == 'success' || steps.generate-delta.outcome == 'failure') &&
+          (contains(steps.generate-delta.outputs.has-lwc, 'true'))
         with:
           run-arguments: >
             --target force-app/main/default/lwc

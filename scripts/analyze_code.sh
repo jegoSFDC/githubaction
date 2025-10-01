@@ -25,13 +25,35 @@ mkdir -p reports
 [ -f reports/apex.json ] || echo '{"violations":[]}' > reports/apex.json
 [ -f reports/lwc.json ] || echo '{"violations":[]}' > reports/lwc.json
 
+# Check if Code Analyzer GitHub Actions actually ran by looking for real content
+APEX_ANALYZER_RAN="false"
+LWC_ANALYZER_RAN="false"
+
+# Check if apex.json has real violations or is just our empty default
+if [ -f reports/apex.json ]; then
+  # If file is larger than just our default empty structure, analyzer likely ran
+  if [ "$(wc -c < reports/apex.json)" -gt 20 ]; then
+    APEX_ANALYZER_RAN="true"
+  fi
+fi
+
+# Check if lwc.json has real violations or is just our empty default  
+if [ -f reports/lwc.json ]; then
+  # If file is larger than just our default empty structure, analyzer likely ran
+  if [ "$(wc -c < reports/lwc.json)" -gt 20 ]; then
+    LWC_ANALYZER_RAN="true"
+  fi
+fi
+
 echo ""
 echo "🔧 Apex Code Analysis:"
 echo "======================"
 
 # Display Apex results
 APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
-if [ "$APEX_VIOLATIONS" -gt 0 ]; then
+if [ "$APEX_ANALYZER_RAN" = "false" ]; then
+  echo "⏭️  Skipped (no Apex components in delta package)"
+elif [ "$APEX_VIOLATIONS" -gt 0 ]; then
   echo "📊 Found $APEX_VIOLATIONS violation(s)"
   echo ""
   jq -r '.violations[]? |
@@ -47,7 +69,9 @@ echo "====================="
 
 # Display LWC results
 LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
-if [ "$LWC_VIOLATIONS" -gt 0 ]; then
+if [ "$LWC_ANALYZER_RAN" = "false" ]; then
+  echo "⏭️  Skipped (no LWC components in delta package)"
+elif [ "$LWC_VIOLATIONS" -gt 0 ]; then
   echo "📊 Found $LWC_VIOLATIONS violation(s)"
   echo ""
   jq -r '.violations[]? |
@@ -60,9 +84,23 @@ fi
 echo ""
 echo "📊 Overall Summary:"
 echo "==================="
-echo "  • Apex violations: $APEX_VIOLATIONS"
-echo "  • LWC violations: $LWC_VIOLATIONS"
-echo "  • Total violations: $((APEX_VIOLATIONS + LWC_VIOLATIONS))"
+if [ "$APEX_ANALYZER_RAN" = "false" ]; then
+  echo "  • Apex violations: Skipped (no components)"
+else
+  echo "  • Apex violations: $APEX_VIOLATIONS"
+fi
+
+if [ "$LWC_ANALYZER_RAN" = "false" ]; then
+  echo "  • LWC violations: Skipped (no components)"
+else
+  echo "  • LWC violations: $LWC_VIOLATIONS"
+fi
+
+if [ "$APEX_ANALYZER_RAN" = "false" ] && [ "$LWC_ANALYZER_RAN" = "false" ]; then
+  echo "  • Total violations: Skipped (no components to analyze)"
+else
+  echo "  • Total violations: $((APEX_VIOLATIONS + LWC_VIOLATIONS))"
+fi
 
 echo ""
 echo "✅ STAGE 4 COMPLETED: Static code analysis results displayed"

@@ -129,8 +129,26 @@ PY
       echo "  ✅ No destructive changes found"
     fi
 
-    # Set deployment flag for downstream scripts
-    echo "HAS_DEPLOYMENT_PACKAGE=true" >> "$GITHUB_ENV"
+        # Set deployment flag for downstream scripts
+        echo "HAS_DEPLOYMENT_PACKAGE=true" >> "$GITHUB_ENV"
+        
+        # Detect component types for GitHub Actions
+        HAS_APEX="false"
+        HAS_LWC="false"
+        
+        if grep -q "<name>ApexClass</name>" delta/package/package.xml 2>/dev/null || \
+           grep -q "<name>ApexTrigger</name>" delta/package/package.xml 2>/dev/null; then
+          HAS_APEX="true"
+        fi
+        
+        if grep -q "<name>LightningComponentBundle</name>" delta/package/package.xml 2>/dev/null; then
+          HAS_LWC="true"
+        fi
+        
+        # Set component detection flags for GitHub Actions
+        echo "has-deployment-package=true" >> "$GITHUB_OUTPUT"
+        echo "has-apex=$HAS_APEX" >> "$GITHUB_OUTPUT"
+        echo "has-lwc=$HAS_LWC" >> "$GITHUB_OUTPUT"
 
   else
     echo ""
@@ -149,6 +167,11 @@ PY
 
     # Set deployment flag for downstream scripts
     echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
+    
+    # Set component detection flags for GitHub Actions
+    echo "has-deployment-package=false" >> "$GITHUB_OUTPUT"
+    echo "has-apex=false" >> "$GITHUB_OUTPUT"
+    echo "has-lwc=false" >> "$GITHUB_OUTPUT"
   fi
 
 else
@@ -165,6 +188,11 @@ else
 
   # Set deployment flag for downstream scripts
   echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
+  
+  # Set component detection flags for GitHub Actions
+  echo "has-deployment-package=false" >> "$GITHUB_OUTPUT"
+  echo "has-apex=false" >> "$GITHUB_OUTPUT"
+  echo "has-lwc=false" >> "$GITHUB_OUTPUT"
 fi
 
 echo ""
