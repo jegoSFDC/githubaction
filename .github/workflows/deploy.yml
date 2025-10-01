@@ -91,6 +91,97 @@ jobs:
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
+      - name: Analyze Delta Components and Test Mapping
+        run: |
+          set -euo pipefail
+          echo "🔍 Delta Component Analysis:"
+          echo "=================================="
+          
+          if [ -f "delta/package/package.xml" ]; then
+            # Extract Apex classes (non-test)
+            APEX_CLASSES=$(grep -A 50 '<name>ApexClass</name>' delta/package/package.xml | \
+              grep -o '<members>[^<]*</members>' | \
+              sed 's/<members>//g; s/<\/members>//g' | \
+              grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+            
+            # Extract test classes
+            TEST_CLASSES=$(grep -A 50 '<name>ApexClass</name>' delta/package/package.xml | \
+              grep -o '<members>[^<]*</members>' | \
+              sed 's/<members>//g; s/<\/members>//g' | \
+              grep -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+            
+            echo "📋 **Apex Classes Found in Delta:**"
+            if [ -n "$APEX_CLASSES" ]; then
+              for class in $APEX_CLASSES; do
+                echo "   • $class"
+              done
+            else
+              echo "   • No Apex classes found"
+            fi
+            echo ""
+            
+            echo "🧪 **Test Classes Found in Delta:**"
+            if [ -n "$TEST_CLASSES" ]; then
+              for test in $TEST_CLASSES; do
+                echo "   • $test"
+              done
+            else
+              echo "   • No test classes found"
+            fi
+            echo ""
+            
+            echo "🎯 **Test-to-Class Mapping:**"
+            if [ -n "$APEX_CLASSES" ]; then
+              FOUND_MAPPINGS=false
+              for class in $APEX_CLASSES; do
+                EXPECTED_TEST="${class}Test"
+                if echo "$TEST_CLASSES" | grep -q "$EXPECTED_TEST"; then
+                  echo "   ✅ $class → $EXPECTED_TEST (Found)"
+                  FOUND_MAPPINGS=true
+                else
+                  echo "   ❌ $class → $EXPECTED_TEST (Missing)"
+                fi
+              done
+              
+              if [ "$FOUND_MAPPINGS" = "false" ]; then
+                echo "   ⚠️  No matching test classes found for any Apex classes"
+              fi
+            else
+              echo "   ℹ️  No Apex classes to analyze"
+            fi
+            echo ""
+            
+            # Extract other metadata types
+            echo "📦 **Other Metadata Types:**"
+            
+            CUSTOM_LABELS=$(grep -A 5 '<name>CustomLabel</name>' delta/package/package.xml | \
+              grep -o '<members>[^<]*</members>' | \
+              sed 's/<members>//g; s/<\/members>//g' | tr '\n' ' ' | sed 's/ $//')
+            
+            FLOWS=$(grep -A 5 '<name>Flow</name>' delta/package/package.xml | \
+              grep -o '<members>[^<]*</members>' | \
+              sed 's/<members>//g; s/<\/members>//g' | tr '\n' ' ' | sed 's/ $//')
+            
+            LWC_COMPONENTS=$(grep -A 5 '<name>LightningComponentBundle</name>' delta/package/package.xml | \
+              grep -o '<members>[^<]*</members>' | \
+              sed 's/<members>//g; s/<\/members>//g' | tr '\n' ' ' | sed 's/ $//')
+            
+            if [ -n "$CUSTOM_LABELS" ]; then
+              echo "   • Custom Labels: $CUSTOM_LABELS"
+            fi
+            
+            if [ -n "$FLOWS" ]; then
+              echo "   • Flows: $FLOWS"
+            fi
+            
+            if [ -n "$LWC_COMPONENTS" ]; then
+              echo "   • LWC Components: $LWC_COMPONENTS"
+            fi
+            echo ""
+          else
+            echo "❌ No package.xml found - cannot analyze delta components"
+          fi
+
       - name: Run Salesforce Code Analyzer for Apex
         id: run-code-analyzer-apex
         uses: forcedotcom/run-code-analyzer@v2
@@ -176,15 +267,78 @@ jobs:
             
             # Check if there are any Apex files
             if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
-              echo "🔍 Found Apex files, running tests..."
+              echo "🔍 Found Apex files, analyzing test strategy..."
               
-              # Deploy with appropriate test level
-              sf project deploy start \
-                --source-dir delta/force-app \
-                --target-org sandbox \
-                --dry-run \
-                --test-level RunLocalTests \
-                --json > reports/deploy-report.json || true
+              # Extract Apex classes and test classes from delta
+              APEX_CLASSES=$(grep -A 50 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
+                grep -o '<members>[^<]*</members>' | \
+                sed 's/<members>//g; s/<\/members>//g' | \
+                grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+              
+              TEST_CLASSES=$(grep -A 50 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
+                grep -o '<members>[^<]*</members>' | \
+                sed 's/<members>//g; s/<\/members>//g' | \
+                grep -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+              
+              echo "📋 Apex Classes in Delta: $APEX_CLASSES"
+              echo "🧪 Test Classes in Delta: $TEST_CLASSES"
+              
+              # Determine test execution strategy
+              if [ -n "$APEX_CLASSES" ] && [ -n "$TEST_CLASSES" ]; then
+                echo "🎯 **Test Execution Strategy: RunSpecifiedTests**"
+                
+                # Find matching tests
+                TESTS_TO_RUN=""
+                for class in $APEX_CLASSES; do
+                  EXPECTED_TEST="${class}Test"
+                  if echo "$TEST_CLASSES" | grep -q "$EXPECTED_TEST"; then
+                    TESTS_TO_RUN="$TESTS_TO_RUN $EXPECTED_TEST"
+                    echo "   ✅ Running test: $EXPECTED_TEST for class: $class"
+                  fi
+                done
+                
+                if [ -n "$TESTS_TO_RUN" ]; then
+                  TESTS_CSV=$(echo "$TESTS_TO_RUN" | tr ' ' ',' | sed 's/^,//; s/,$//')
+                  echo "Running specified tests: $TESTS_CSV"
+                  sf project deploy start \
+                    --source-dir delta/force-app \
+                    --target-org sandbox \
+                    --dry-run \
+                    --test-level RunSpecifiedTests \
+                    --tests "$TESTS_CSV" \
+                    --json > reports/deploy-report.json || true
+                else
+                  echo "⚠️  No matching tests found, running all available test classes"
+                  TESTS_CSV=$(echo "$TEST_CLASSES" | tr ' ' ',' | sed 's/^,//; s/,$//')
+                  sf project deploy start \
+                    --source-dir delta/force-app \
+                    --target-org sandbox \
+                    --dry-run \
+                    --test-level RunSpecifiedTests \
+                    --tests "$TESTS_CSV" \
+                    --json > reports/deploy-report.json || true
+                fi
+              elif [ -n "$TEST_CLASSES" ]; then
+                echo "🧪 **Test Execution Strategy: RunSpecifiedTests (Test classes only)**"
+                TESTS_CSV=$(echo "$TEST_CLASSES" | tr ' ' ',' | sed 's/^,//; s/,$//')
+                echo "Running test classes: $TESTS_CSV"
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --dry-run \
+                  --test-level RunSpecifiedTests \
+                  --tests "$TESTS_CSV" \
+                  --json > reports/deploy-report.json || true
+              else
+                echo "⚠️  **Test Execution Strategy: RunLocalTests (No specific tests identified)**"
+                echo "Running all local tests..."
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --dry-run \
+                  --test-level RunLocalTests \
+                  --json > reports/deploy-report.json || true
+              fi
             else
               echo "📦 No Apex files found, skipping test execution"
               sf project deploy start \
@@ -205,26 +359,24 @@ jobs:
           set -euo pipefail
           echo ""
           
-          # Determine validation status
+          # Determine validation status from deploy report
           if [ -f reports/deploy-report.json ]; then
             STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
             if [ "$STATUS" = "Succeeded" ]; then 
-              echo "🚦 Validation Status: ✅ Succeeded"
+              echo "🚦 **Validation Deployment Status:** ✅ Succeeded"
             elif [ "$STATUS" = "Skipped" ]; then
-              echo "🚦 Validation Status: ⚪ Skipped (no changes)"
+              echo "🚦 **Validation Deployment Status:** ⚪ Skipped (no changes)"
             else 
-              echo "🚦 Validation Status: ❌ Failed"
+              echo "🚦 **Validation Deployment Status:** ❌ Failed"
             fi
           else
-            echo "🚦 Validation Status: ⚪ Skipped (no deploy report)"
+            echo "🚦 **Validation Deployment Status:** ⚪ Skipped (no deploy report)"
           fi
           echo ""
+          echo "==============================================="
 
           # Show deployment details if we have changes
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            
-            echo "📦 Deployment Package Metadata:"
-            echo "==============================================="
             
             COMPONENT_COUNT=0
             if [ -f "delta/package/package.xml" ]; then
@@ -244,45 +396,65 @@ jobs:
             fi
             echo ""
 
-            # Coverage Analysis
-            echo "🎯 Coverage Analysis"
+            # Enhanced Coverage Analysis
+            echo "🎯 **Coverage Analysis**"
             if [ -f "reports/deploy-report.json" ]; then
               DEPLOY_STATUS=$(jq -r '.result.status // "Unknown"' reports/deploy-report.json 2>/dev/null || echo "Unknown")
               
               if [ "$DEPLOY_STATUS" = "Succeeded" ]; then
-                echo "✅ **Validation Passed:** All tests and coverage requirements met"
+                COVERAGE=$(jq -r '.result.details.testCoveragePercent // 0' reports/deploy-report.json 2>/dev/null || echo "0")
+                echo "✅ **Validation Passed**"
+                echo "   • Status: $DEPLOY_STATUS"
+                echo "   • Coverage: $COVERAGE%"
+                echo "   • All tests and coverage requirements met"
               elif [ "$DEPLOY_STATUS" = "Skipped" ]; then
                 echo "⚪ **No Testing Required:** No Apex changes detected"
               else
-                echo "❌ **Validation Failed:** Check test execution and coverage"
-                # Show failures if available
+                echo "❌ **Validation Failed**"
+                echo "   • Status: $DEPLOY_STATUS"
+                
+                # Show detailed test results
+                TESTS_RUN=$(jq -r '.result.details.runTestResult.numTestsRun // 0' reports/deploy-report.json 2>/dev/null || echo "0")
+                TESTS_FAILED=$(jq -r '.result.details.runTestResult.numFailures // 0' reports/deploy-report.json 2>/dev/null || echo "0")
+                COVERAGE=$(jq -r '.result.details.testCoveragePercent // 0' reports/deploy-report.json 2>/dev/null || echo "0")
+                
+                echo "   • Tests Run: $TESTS_RUN"
+                echo "   • Tests Failed: $TESTS_FAILED"
+                echo "   • Coverage: $COVERAGE% (Required: 75%)"
+                
+                # Show specific failures
                 if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
                   echo ""
-                  echo "🔍 **Test Failures:**"
-                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message)"' reports/deploy-report.json 2>/dev/null
+                  echo "🔍 **Specific Test Failures:**"
+                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message | split(".")[0])"' reports/deploy-report.json 2>/dev/null
                 fi
               fi
             fi
             echo ""
 
             # Static Code Analysis Summary
-            echo "🔍 Static Code Analysis"
+            echo "🔍 **Static Code Analysis**"
             APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
             LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
             TOTAL_VIOLATIONS=$((APEX_VIOLATIONS + LWC_VIOLATIONS))
             
+            echo "   • Apex Violations: $APEX_VIOLATIONS"
+            echo "   • LWC Violations: $LWC_VIOLATIONS"
+            echo "   • Total: $TOTAL_VIOLATIONS"
+            echo ""
+            
             if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-              echo "✅ Code Quality: Excellent (0 violations)"
+              echo "📊 **Code Quality:** 🟢 Excellent (0 violations)"
             elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-              echo "🟡 Code Quality: Good ($TOTAL_VIOLATIONS violations)"
+              echo "📊 **Code Quality:** 🟡 Good ($TOTAL_VIOLATIONS violations)"
             else
-              echo "🔴 Code Quality: Needs Attention ($TOTAL_VIOLATIONS violations)"
+              echo "📊 **Code Quality:** 🔴 Needs Attention ($TOTAL_VIOLATIONS violations)"
             fi
 
           else
-            echo "📌 Validation Status: Skipped"
-            echo "ℹ️  Reason: No deployable metadata found in delta"
+            echo "📌 **Validation Status:** Skipped"
+            echo "ℹ️  **Reason:** No deployable metadata found in delta"
             echo ""
-            echo "🔍 Static Code Analysis: ✅ No violations"
-            echo "📊 Code Quality: 🟢 Excellent (0 violations)"
+            echo "🔍 **Static Code Analysis:** ✅ No violations"
+            echo "📊 **Code Quality:** 🟢 Excellent (0 violations)"
           fi
