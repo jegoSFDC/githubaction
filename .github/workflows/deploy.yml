@@ -37,39 +37,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'none'  # Fixed: Removed cache-dependency-path to avoid "no files" errors
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '11'
-
-      - name: Prep debug dirs & show env
-        run: |
-          set -euo pipefail
-          echo "===== ENV ====="
-          env | sort
-          echo "===== WORKSPACE LISTING (top) ====="
-          ls -la || true
-          mkdir -p delta reports
-          echo "Reports and delta created"
-
-      - name: Verify sf CLI & plugins
-        run: |
-          set -euo pipefail
-          echo "PATH: $PATH"
-          which sf || { echo "sf not found in PATH"; exit 2; }
-          echo "sf version:"
-          sf --version || { echo "sf --version failed"; exit 2; }
-          echo "sf plugins (core):"
-          sf plugins --core || { echo "sf plugins query failed"; exit 2; }
-          echo "Check sgd availability:"
-          if ! sf sgd --help > /dev/null 2>&1; then
-            echo "sfdx-git-delta (sgd) not available; please ensure plugin installed"
-            sf plugins
-            exit 3
-          fi
 
       - name: Install Salesforce CLI
         run: |
@@ -86,34 +59,24 @@ jobs:
           sf org login sfdx-url --sfdx-url-file /tmp/authFile.txt --alias sandbox --set-default
           rm -f /tmp/authFile.txt
 
+      - name: Create Delta Output Directory
+        run: mkdir -p delta reports
+
       - name: Install sfdx-git-delta Plugin
         run: |
           set -euo pipefail
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
-      - name: Determine PR base ref
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          set -euo pipefail
-          echo "PR base ref: ${{ github.event.pull_request.base.ref }}"
-          echo "PR base sha: ${{ github.event.pull_request.base.sha }}"
-          echo "BASE_REF=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
-
-      - name: Generate Delta using sfdx-git-delta (robust)
+      - name: Generate Delta using sfdx-git-delta
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
         run: |
           set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # ensure base is fetched
-          git fetch origin $BASE_REF --quiet || git fetch origin main --quiet
+          git fetch origin $BASE_REF --quiet
           echo "Generating delta from origin/$BASE_REF to HEAD"
-          sf sgd source delta --to HEAD --from origin/${BASE_REF} --output delta --generate-delta || {
-            echo "sgd exit code: $?"
-            ls -la
-            echo "Contents of workspace:"
-            find . -maxdepth 3 -type f | sed -n '1,200p'
-            exit 4
-          }
+          sf sgd source delta --to HEAD --from origin/$BASE_REF --output delta --generate-delta
           ls -la delta || true
 
       - name: Show Generated Package.xml Files
@@ -127,17 +90,6 @@ jobs:
           echo ""
           echo "=== Destructive Changes (if exists) ==="
           find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
-
-      - name: Install required tools
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y xmlstarlet jq
-
-      - name: Ensure reports directory
-        run: |
-          set -euo pipefail
-          mkdir -p reports
 
       - name: Run Salesforce Code Analyzer for Apex
         id: run-code-analyzer-apex
@@ -163,12 +115,6 @@ jobs:
           results-artifact-name: code-analyzer-lwc-results
         continue-on-error: true
 
-      - name: Ensure analyzer report files exist
-        run: |
-          set -euo pipefail
-          [ -f reports/apex.json ] || echo '{"violations":[]}' > reports/apex.json
-          [ -f reports/lwc.json ] || echo '{"violations":[]}' > reports/lwc.json
-
       - name: Upload Code Analysis Reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -177,16 +123,6 @@ jobs:
           path: reports/
           retention-days: 30
 
-      - name: Upload debug artifacts (always)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-delta-reports
-          path: |
-            delta
-            reports
-          retention-days: 7
-
       - name: Display Code Analysis Results
         if: always()
         run: |
@@ -194,18 +130,18 @@ jobs:
           echo "🔍 Static Code Analysis Results:"
           echo "=================================="
           
-          # Display Apex results with correct parsing
+          # Ensure reports exist with fallback
+          [ -f reports/apex.json ] || echo '{"violations":[]}' > reports/apex.json
+          [ -f reports/lwc.json ] || echo '{"violations":[]}' > reports/lwc.json
+          
+          # Display Apex results
           if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
             echo "📊 Apex Analysis Results:"
-
-            # Use correct JSON path for violations count
             APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
-
             if [ "$APEX_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               echo "High Priority Issues:"
-              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/apex.json 2>/dev/null | head -10 || \
-              echo "Check reports/apex.json for details"
+              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/apex.json 2>/dev/null | head -10
             else
               echo "✅ No Apex violations found!"
             fi
@@ -215,18 +151,14 @@ jobs:
 
           echo ""
 
-          # Display LWC results with correct parsing
+          # Display LWC results
           if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
             echo "📊 LWC Analysis Results:"
-
-            # Use correct JSON path for violations count
             LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
-
             if [ "$LWC_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               echo "Key Issues:"
-              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/lwc.json 2>/dev/null | head -5 || \
-              echo "Check reports/lwc.json for details"
+              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/lwc.json 2>/dev/null | head -5
             else
               echo "✅ No LWC violations found!"
             fi
@@ -234,40 +166,37 @@ jobs:
             echo "✅ No LWC violations found!"
           fi
 
-      - name: Extract Metadata Components
-        id: extract-metadata
+      - name: Validate Delta Deployment with Dynamic Test Classes
+        id: validate_deploy
         run: |
           set -euo pipefail
-
-          # Use xmlstarlet for robust XML parsing
-          if [ -f "delta/package/package.xml" ]; then
-            APEX_CLASSES=$(xmlstarlet sel -t -m "//types[name='ApexClass']/members" -v . -n delta/package/package.xml 2>/dev/null | grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
-            DEPLOYED_TESTS=$(xmlstarlet sel -t -m "//types[name='ApexClass']/members" -v . -n delta/package/package.xml 2>/dev/null | grep -E 'Test$|test$' | tr '\n' ',' | sed 's/,$//')
-
-            echo "apex_classes=$APEX_CLASSES" >> $GITHUB_OUTPUT
-            echo "deployed_tests=$DEPLOYED_TESTS" >> $GITHUB_OUTPUT
-            echo "📋 APEX CLASSES TO DEPLOY: '$APEX_CLASSES'"
-            echo "🧪 TEST CLASSES TO RUN: '$DEPLOYED_TESTS'"
+          
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "Delta found. Proceeding with validation..."
+            
+            # Check if there are any Apex files
+            if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
+              echo "🔍 Found Apex files, running tests..."
+              
+              # Deploy with appropriate test level
+              sf project deploy start \
+                --source-dir delta/force-app \
+                --target-org sandbox \
+                --dry-run \
+                --test-level RunLocalTests \
+                --json > reports/deploy-report.json || true
+            else
+              echo "📦 No Apex files found, skipping test execution"
+              sf project deploy start \
+                --source-dir delta/force-app \
+                --target-org sandbox \
+                --dry-run \
+                --test-level NoTestRun \
+                --json > reports/deploy-report.json || true
+            fi
           else
-            echo "apex_classes=" >> $GITHUB_OUTPUT
-            echo "deployed_tests=" >> $GITHUB_OUTPUT
-            echo "❌ No package.xml found"
-          fi
-
-      - name: Start dry-run deploy and capture ID
-        id: start_deploy
-        run: |
-          set -euo pipefail
-          mkdir -p reports
-          echo "Starting dry-run deploy..."
-          DEPLOY_JSON=$(sf project deploy start --source-dir delta/force-app --target-org sandbox --dry-run --test-level RunLocalTests --json 2>&1) || DEPLOY_JSON="$DEPLOY_JSON"
-          echo "$DEPLOY_JSON" > reports/deploy-start.json
-          DEPLOY_ID=$(jq -r '.result.id // empty' reports/deploy-start.json || true)
-          if [ -n "$DEPLOY_ID" ]; then
-            echo "Waiting for deploy report for job id: $DEPLOY_ID"
-            sf project deploy report --job-id "$DEPLOY_ID" --target-org sandbox --json > reports/deploy-report.json || true
-          else
-            echo "No deploy id returned (likely no deploy executed or dry-run returned no job)."
+            echo "📭 No deployable metadata found in delta. Skipping validation."
+            echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
           fi
 
       - name: Deployment Summary Report
@@ -275,163 +204,85 @@ jobs:
         run: |
           set -euo pipefail
           echo ""
-          # Fixed: Runtime status computation instead of pre-evaluated expression
+          
+          # Determine validation status
           if [ -f reports/deploy-report.json ]; then
             STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
-            if [ "$STATUS" = "Succeeded" ]; then echo "🚦 Validation Status: ✅ Succeeded"; else echo "🚦 Validation Status: ❌ Failed"; fi
+            if [ "$STATUS" = "Succeeded" ]; then 
+              echo "🚦 Validation Status: ✅ Succeeded"
+            elif [ "$STATUS" = "Skipped" ]; then
+              echo "🚦 Validation Status: ⚪ Skipped (no changes)"
+            else 
+              echo "🚦 Validation Status: ❌ Failed"
+            fi
           else
             echo "🚦 Validation Status: ⚪ Skipped (no deploy report)"
           fi
           echo ""
 
-          # Check deployment status
+          # Show deployment details if we have changes
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-
-            # Extract and display components in the requested format
+            
             echo "📦 Deployment Package Metadata:"
             echo "==============================================="
-
+            
             COMPONENT_COUNT=0
-            COMPONENTS_LIST=""
-
             if [ -f "delta/package/package.xml" ]; then
-              # Extract all metadata components and number them
               while IFS= read -r line; do
                 if [[ $line =~ members\>([^<]+)\</members ]]; then
-                  COMPONENT="${BASH_REMATCH[1]}"
                   COMPONENT_COUNT=$((COMPONENT_COUNT + 1))
-                  COMPONENTS_LIST="$COMPONENTS_LIST$COMPONENT_COUNT. $COMPONENT"$'\n'
+                  echo "$COMPONENT_COUNT. ${BASH_REMATCH[1]}"
                 fi
               done < <(grep '<members>' delta/package/package.xml)
-
+              
               if [ $COMPONENT_COUNT -gt 0 ]; then
-                echo "✅ **Number of Component Successes:** $COMPONENT_COUNT"
                 echo ""
-                echo "🟢 **Components Validated Successfully:**"
-                echo "$COMPONENTS_LIST"
-              else
-                echo "❌ No components found in package.xml"
+                echo "✅ **Number of Components:** $COMPONENT_COUNT"
               fi
             else
               echo "❌ No package.xml found"
             fi
             echo ""
 
-            # Enhanced Coverage Analysis from deploy report
+            # Coverage Analysis
             echo "🎯 Coverage Analysis"
             if [ -f "reports/deploy-report.json" ]; then
               DEPLOY_STATUS=$(jq -r '.result.status // "Unknown"' reports/deploy-report.json 2>/dev/null || echo "Unknown")
-              COVERAGE=$(jq -r '.result.details.testCoveragePercent // 0' reports/deploy-report.json 2>/dev/null || echo "0")
-
-              if [ "$DEPLOY_STATUS" = "Succeeded" ] && [ "$COVERAGE" -ge 75 ]; then
-                echo "✅ **Coverage Met:** $COVERAGE% (Required: 75%)"
+              
+              if [ "$DEPLOY_STATUS" = "Succeeded" ]; then
+                echo "✅ **Validation Passed:** All tests and coverage requirements met"
+              elif [ "$DEPLOY_STATUS" = "Skipped" ]; then
+                echo "⚪ **No Testing Required:** No Apex changes detected"
               else
-                echo "❌ **Coverage Issue Details:**"
-                echo "   • Status: $DEPLOY_STATUS"
-                echo "   • Coverage: $COVERAGE% (Required: 75%)"
-                echo "   • Action Required: Add more test methods or improve existing tests"
-
-                # Show test failures if available
+                echo "❌ **Validation Failed:** Check test execution and coverage"
+                # Show failures if available
                 if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
                   echo ""
-                  echo "🔍 **Test Failure Details:**"
-                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message)"' reports/deploy-report.json 2>/dev/null || echo "   • Check deploy logs for specific failures"
+                  echo "🔍 **Test Failures:**"
+                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message)"' reports/deploy-report.json 2>/dev/null
                 fi
-                echo ""
               fi
-            else
-              echo "❌ **Coverage Issue Details:**"
-              echo "   • Unable to retrieve coverage report"
-              echo "   • Action Required: Check deploy logs above"
-              echo ""
             fi
+            echo ""
 
-            # Static Code Analysis Summary - FIXED PARSING
+            # Static Code Analysis Summary
             echo "🔍 Static Code Analysis"
-            APEX_VIOLATIONS=0
-            LWC_VIOLATIONS=0
-
-            if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
-              APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
-              if [ "$APEX_VIOLATIONS" -gt 0 ]; then
-                echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
-              else
-                echo "✅ No Apex Violations"
-              fi
-            else
-              echo "✅ No Apex Violations"
-            fi
-
-            if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
-              LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
-              if [ "$LWC_VIOLATIONS" -gt 0 ]; then
-                echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
-              else
-                echo "✅ No LWC Violations"
-              fi
-            else
-              echo "✅ No LWC Violations"
-            fi
-            echo ""
-
-            # Quality Score
-            echo "📊 Quality Score"
+            APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
+            LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
             TOTAL_VIOLATIONS=$((APEX_VIOLATIONS + LWC_VIOLATIONS))
+            
             if [ $TOTAL_VIOLATIONS -eq 0 ]; then
-              echo "Code Quality: 🟢 Excellent (0 violations)"
+              echo "✅ Code Quality: Excellent (0 violations)"
             elif [ $TOTAL_VIOLATIONS -le 5 ]; then
-              echo "Code Quality: 🟡 Good ($TOTAL_VIOLATIONS violations)"
+              echo "🟡 Code Quality: Good ($TOTAL_VIOLATIONS violations)"
             else
-              echo "Code Quality: 🔴 Needs Attention ($TOTAL_VIOLATIONS violations)"
-            fi
-
-            # Final deployment status from deploy report
-            if [ -f "reports/deploy-report.json" ]; then
-              DEPLOY_STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
-              if [ "$DEPLOY_STATUS" = "Succeeded" ]; then
-                echo "Deployment: ✅ Succeeded"
-              else
-                echo "Deployment: ❌ Failed"
-              fi
-            else
-              echo "Deployment: ❌ Failed (no deploy report)"
-            fi
-            echo ""
-
-            # Enhanced Test Results from deploy report
-            echo "🎯 Test Results"
-            if [ -f "reports/deploy-report.json" ]; then
-              TESTS_RUN=$(jq -r '.result.details.runTestResult.numTestsRun // 0' reports/deploy-report.json 2>/dev/null || echo "0")
-              TESTS_FAILED=$(jq -r '.result.details.runTestResult.numFailures // 0' reports/deploy-report.json 2>/dev/null || echo "0")
-              TESTS_PASSED=$((TESTS_RUN - TESTS_FAILED))
-
-              if [ "$TESTS_RUN" -gt 0 ]; then
-                echo "✅ **Test Execution Results:**"
-                echo "   • Tests Run: $TESTS_RUN"
-                echo "   • Passed: $TESTS_PASSED"
-                echo "   • Failed: $TESTS_FAILED"
-
-                if [ "$TESTS_FAILED" -gt 0 ]; then
-                  echo ""
-                  echo "🔧 **Failed Tests:**"
-                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message)"' reports/deploy-report.json 2>/dev/null || echo "   • Check deploy logs for specific failures"
-                fi
-              else
-                echo "❌ No tests were executed"
-              fi
-            else
-              echo "❌ Unable to retrieve test results"
+              echo "🔴 Code Quality: Needs Attention ($TOTAL_VIOLATIONS violations)"
             fi
 
           else
             echo "📌 Validation Status: Skipped"
             echo "ℹ️  Reason: No deployable metadata found in delta"
             echo ""
-            echo "🔍 Static Code Analysis"
-            echo "✅ No Apex Violations"
-            echo "✅ No LWC Violations"
-            echo ""
-            echo "📊 Quality Score"
-            echo "Code Quality: 🟢 Excellent (0 violations)"
-            echo "Deployment: ⚪ Skipped (no changes)"
+            echo "🔍 Static Code Analysis: ✅ No violations"
+            echo "📊 Code Quality: 🟢 Excellent (0 violations)"
           fi
