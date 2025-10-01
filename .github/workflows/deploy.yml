@@ -132,7 +132,6 @@ jobs:
             if [ "$APEX_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               echo "High Priority Issues:"
-              # FIXED: Parse location field correctly - extract filename from location
               jq -r '.violations[]? | select(.severity <= 3) | 
                 (if .location then (.location | split(":")[0] | split("/") | .[-1]) else "Unknown" end) as $file |
                 "  • \($file) - \(.ruleName // "Unknown"): \(.message)"' reports/apex.json 2>/dev/null | head -10
@@ -248,19 +247,29 @@ jobs:
       - name: Validate with Intelligent Test Selection
         id: validate_deploy
         run: |
+          #!/usr/bin/env bash
+          set -uo pipefail
+
+          mkdir -p reports
+          # default report if nothing else writes one
+          echo '{"result":{"status":"Failed","message":"No deploy run performed"}}' > reports/deploy-report.json
+          echo "" > reports/validation-summary.txt
+
+          # helper to write short summary lines
+          summary() { echo "$1" | tee -a reports/validation-summary.txt; }
+
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Delta found. Proceeding with validation..."
-            
+            summary "Delta found: deployable metadata present."
+
             if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
-              echo "🔍 Found Apex files, running tests..."
-              
+              summary "Apex changes detected: will run tests."
+
+              # prefer mapped tests if any
               if [ -n "${RELATED_TESTS:-}" ]; then
-                # **FIXED: Convert space-separated test list to comma-separated for sf CLI**
                 RELATED_TESTS_CSV=$(echo "$RELATED_TESTS" | xargs -n1 | paste -sd, - || echo "")
-                echo "✅ Running mapped tests: ${RELATED_TESTS_CSV}"
-                
-                # Run with specified tests first
-                echo "🔄 Running deploy validation with mapped tests..."
+                summary "Using mapped tests: ${RELATED_TESTS_CSV}"
+
+                # Run deploy validation with mapped tests
                 if sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
@@ -268,181 +277,131 @@ jobs:
                   --test-level RunSpecifiedTests \
                   --tests "$RELATED_TESTS_CSV" \
                   --json > reports/deploy-report.json 2>&1; then
-                  
-                  echo "✅ Deploy validation completed successfully"
+                  summary "Mapped-tests deploy validation: Succeeded"
                 else
-                  echo "❌ Deploy validation failed with mapped tests!"
-                  echo ""
-                  echo "🔍 Detailed Error Information:"
-                  echo "==============================================="
-                  if [ -f "reports/deploy-report.json" ] && [ -s "reports/deploy-report.json" ]; then
-                    # Extract and display actual error details from the JSON response
-                    if jq -e '.result.details' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo "📋 Error Details:"
-                      jq -r '.result.details | select(. != null) | to_entries[] | "  • \(.key): \(.value)"' reports/deploy-report.json 2>/dev/null || echo "  Could not parse error details"
-                    fi
-
-                    if jq -e '.result.details.componentFailures' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo ""
-                      echo "🔧 Component Failures:"
-                      jq -r '.result.details.componentFailures[]? | "  • \(.fileName // .name): \(.problem) (\(.problemType))"' reports/deploy-report.json 2>/dev/null | head -10
-                    fi
-
-                    if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo ""
-                      echo "🧪 Test Failures:"
-                      jq -r '.result.details.runTestResult.failures[]? | "  • \(.name): \(.message) (\(.methodName))"' reports/deploy-report.json 2>/dev/null | head -10
-                    fi
-
-                    if jq -e '.message' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo ""
-                      echo "💬 Error Message:"
-                      jq -r '.message' reports/deploy-report.json 2>/dev/null
-                    fi
-                  else
-                    echo "📭 No detailed error information available in deploy report"
-                    echo ""
-                    echo "🔍 Raw command output (if available):"
-                    cat reports/deploy-report.json 2>/dev/null || echo "  No output file found"
-                  fi
-                  echo "==============================================="
-                  echo ""
-                  echo "⚠️  Continuing to analyze results and will retry with fallback..."
-                  
-                  # Create a basic report structure for failed deployments
-                  echo '{"result":{"status":"Failed","message":"Deploy validation failed with mapped tests"}}' > reports/deploy-report.json
+                  summary "Mapped-tests deploy validation: Failed (see reports/deploy-report.json). Will retry with RunLocalTests."
+                  # keep reports/deploy-report.json (contains CLI output) and fallback below
                 fi
-                
-                # **ADDED: Check coverage after running mapped tests**
-                if [ -f "reports/deploy-report.json" ]; then
-                  COVERAGE=$(jq -r '.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0' reports/deploy-report.json 2>/dev/null | awk '{sum += $1} END {print (NR > 0 ? sum/NR : 0)}' || echo "0")
-                  COVERAGE=${COVERAGE%.*}  # Remove decimal part
-                  
-                  echo "📊 Coverage achieved: ${COVERAGE}%"
-                  
-                  if [ "$COVERAGE" -lt "${COVERAGE_THRESHOLD}" ]; then
-                    echo "⚠️  Coverage ${COVERAGE}% below threshold ${COVERAGE_THRESHOLD}%. Retrying with RunLocalTests..."
-                    
-                    # Retry with all local tests to ensure sufficient coverage
-                    echo "🔄 Running fallback deploy validation with all local tests..."
-                    if sf project deploy start \
-                      --source-dir delta/force-app \
-                      --target-org sandbox \
-                      --dry-run \
-                      --test-level RunLocalTests \
-                      --json > reports/deploy-report-coverage.json 2>&1; then
-                      
-                      echo "✅ Fallback deploy validation completed"
-                    else
-                      echo "❌ Fallback deploy validation also failed!"
-                      echo ""
-                      echo "🔍 Fallback Deployment Error Details:"
-                      echo "==============================================="
-                      if [ -f "reports/deploy-report-coverage.json" ] && [ -s "reports/deploy-report-coverage.json" ]; then
-                        # Extract and display actual error details from the JSON response
-                        if jq -e '.result.details' reports/deploy-report-coverage.json > /dev/null 2>&1; then
-                          echo "📋 Error Details:"
-                          jq -r '.result.details | select(. != null) | to_entries[] | "  • \(.key): \(.value)"' reports/deploy-report-coverage.json 2>/dev/null || echo "  Could not parse error details"
-                        fi
 
-                        if jq -e '.result.details.componentFailures' reports/deploy-report-coverage.json > /dev/null 2>&1; then
-                          echo ""
-                          echo "🔧 Component Failures:"
-                          jq -r '.result.details.componentFailures[]? | "  • \(.fileName // .name): \(.problem) (\(.problemType))"' reports/deploy-report-coverage.json 2>/dev/null | head -10
-                        fi
+                # compute coverage if available
+                COVERAGE=0
+                if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+                  COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
+                  COVERAGE=${COVERAGE%.*}
+                  summary "Coverage from mapped-tests run: ${COVERAGE}%"
+                fi
 
-                        if jq -e '.result.details.runTestResult.failures' reports/deploy-report-coverage.json > /dev/null 2>&1; then
-                          echo ""
-                          echo "🧪 Test Failures:"
-                          jq -r '.result.details.runTestResult.failures[]? | "  • \(.name): \(.message) (\(.methodName))"' reports/deploy-report-coverage.json 2>/dev/null | head -10
-                        fi
-
-                        if jq -e '.message' reports/deploy-report-coverage.json > /dev/null 2>&1; then
-                          echo ""
-                          echo "💬 Error Message:"
-                          jq -r '.message' reports/deploy-report-coverage.json 2>/dev/null
-                        fi
-                      else
-                        echo "📭 No detailed error information available in fallback deploy report"
-                        echo ""
-                        echo "🔍 Raw fallback command output (if available):"
-                        cat reports/deploy-report-coverage.json 2>/dev/null || echo "  No output file found"
-                      fi
-                      echo "==============================================="
-                      echo ""
-                      echo '{"result":{"status":"Failed","message":"Both specified and local tests failed"}}' > reports/deploy-report-coverage.json
-                    fi
-                    
-                    # Use the coverage run results
+                # fallback if coverage below threshold or mapped run failed (status != Succeeded)
+                STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
+                if [ "$STATUS" != "Succeeded" ] || [ "${COVERAGE:-0}" -lt "${COVERAGE_THRESHOLD}" ]; then
+                  summary "Triggering fallback: RunLocalTests (either mapped run failed or coverage < ${COVERAGE_THRESHOLD}%)."
+                  if sf project deploy start \
+                    --source-dir delta/force-app \
+                    --target-org sandbox \
+                    --dry-run \
+                    --test-level RunLocalTests \
+                    --json > reports/deploy-report-coverage.json 2>&1; then
+                    summary "Fallback RunLocalTests: Succeeded"
                     mv reports/deploy-report-coverage.json reports/deploy-report.json
                   else
-                    echo "✅ Coverage ${COVERAGE}% meets threshold ${COVERAGE_THRESHOLD}%"
+                    summary "Fallback RunLocalTests: Failed (see reports/deploy-report-coverage.json)"
+                    mv reports/deploy-report-coverage.json reports/deploy-report.json || true
                   fi
                 fi
+
               else
-                echo "⚠️  No mapped tests found; running all local tests."
-                echo "🔄 Running deploy validation with all local tests..."
+                # no mapped tests, run all local tests
+                summary "No mapped tests found; running RunLocalTests."
                 if sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunLocalTests \
                   --json > reports/deploy-report.json 2>&1; then
-                  
-                  echo "✅ Deploy validation completed successfully"
+                  summary "RunLocalTests deploy validation: Succeeded"
                 else
-                  echo "❌ Deploy validation failed with local tests!"
-                  echo ""
-                  echo "🔍 Local Tests Error Details:"
-                  echo "==============================================="
-                  if [ -f "reports/deploy-report.json" ] && [ -s "reports/deploy-report.json" ]; then
-                    # Extract and display actual error details from the JSON response
-                    if jq -e '.result.details' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo "📋 Error Details:"
-                      jq -r '.result.details | select(. != null) | to_entries[] | "  • \(.key): \(.value)"' reports/deploy-report.json 2>/dev/null || echo "  Could not parse error details"
-                    fi
-
-                    if jq -e '.result.details.componentFailures' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo ""
-                      echo "🔧 Component Failures:"
-                      jq -r '.result.details.componentFailures[]? | "  • \(.fileName // .name): \(.problem) (\(.problemType))"' reports/deploy-report.json 2>/dev/null | head -10
-                    fi
-
-                    if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo ""
-                      echo "🧪 Test Failures:"
-                      jq -r '.result.details.runTestResult.failures[]? | "  • \(.name): \(.message) (\(.methodName))"' reports/deploy-report.json 2>/dev/null | head -10
-                    fi
-
-                    if jq -e '.message' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo ""
-                      echo "💬 Error Message:"
-                      jq -r '.message' reports/deploy-report.json 2>/dev/null
-                    fi
-                  else
-                    echo "📭 No detailed error information available in deploy report"
-                    echo ""
-                    echo "🔍 Raw command output (if available):"
-                    cat reports/deploy-report.json 2>/dev/null || echo "  No output file found"
-                  fi
-                  echo "==============================================="
-                  echo ""
-                  echo '{"result":{"status":"Failed","message":"Local tests failed"}}' > reports/deploy-report.json
+                  summary "RunLocalTests deploy validation: Failed (see reports/deploy-report.json)"
                 fi
               fi
+
             else
-              echo "📦 No Apex files found, skipping test execution"
-              sf project deploy start \
+              summary "No Apex files found in delta: deploying with NoTestRun."
+              if sf project deploy start \
                 --source-dir delta/force-app \
                 --target-org sandbox \
                 --dry-run \
                 --test-level NoTestRun \
-                --json > reports/deploy-report.json
+                --json > reports/deploy-report.json 2>&1; then
+                summary "NoTestRun deploy validation: Succeeded"
+              else
+                summary "NoTestRun deploy validation: Failed (see reports/deploy-report.json)"
+              fi
             fi
           else
-            echo "📭 No deployable metadata found in delta. Skipping validation."
+            summary "No deployable metadata found in delta. Skipping validation."
             echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
           fi
+
+          # Build compact human-readable validation summary (one-liner counts + coverage)
+          STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
+          COMPONENT_FAIL_COUNT=0
+          if jq -e '.result.details.componentFailures' reports/deploy-report.json >/dev/null 2>&1; then
+            COMPONENT_FAIL_COUNT=$(jq '.result.details.componentFailures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+          fi
+          TEST_FAIL_COUNT=0
+          if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json >/dev/null 2>&1; then
+            TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+          fi
+          COVERAGE=0
+          if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+            COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
+            COVERAGE=${COVERAGE%.*}
+          fi
+
+          echo "" >> reports/validation-summary.txt
+          echo "=== DEPLOY VALIDATION SUMMARY ===" >> reports/validation-summary.txt
+          echo "Status: ${STATUS}" >> reports/validation-summary.txt
+          echo "Component failures: ${COMPONENT_FAIL_COUNT}" >> reports/validation-summary.txt
+          echo "Test failures: ${TEST_FAIL_COUNT}" >> reports/validation-summary.txt
+          echo "Average coverage: ${COVERAGE}%" >> reports/validation-summary.txt
+          echo "================================" >> reports/validation-summary.txt
+
+          # Also print a short summary to job log (human friendly)
+          echo ""
+          echo "🔎 Validation summary (short):"
+          echo "  • Status: ${STATUS}"
+          echo "  • Component failures: ${COMPONENT_FAIL_COUNT}"
+          echo "  • Test failures: ${TEST_FAIL_COUNT}"
+          echo "  • Coverage: ${COVERAGE}% (threshold: ${COVERAGE_THRESHOLD}%)"
+          if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ] || [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
+            echo "⚠️  Validation issues detected. See reports/deploy-report.json and reports/validation-summary.txt for details."
+            # print a couple of example failing items to aid triage
+            if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ]; then
+              echo "  • Example component failures:"
+              jq -r '.result.details.componentFailures[]? | "    - \(.fileName // .name): \(.problem)"' reports/deploy-report.json 2>/dev/null | head -5 || true
+            fi
+            if [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
+              echo "  • Example test failures:"
+              jq -r '.result.details.runTestResult.failures[]? | "    - \(.name): \(.message) (\(.methodName))"' reports/deploy-report.json 2>/dev/null | head -5 || true
+            fi
+          else
+            echo "✅ Validation looks good."
+          fi
+
+          # leave detailed JSON reports and the concise validation-summary.txt as artifacts
+
+      - name: Upload Validation Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-reports
+          path: |
+            reports/deploy-report.json
+            reports/validation-summary.txt
+            reports/test-mapping.json
+            reports/apex.json
+            reports/lwc.json
+          retention-days: 30
 
       - name: Display Validation Summary
         if: always()
@@ -527,7 +486,7 @@ jobs:
 
                   # Extract coverage information even from failed deployments
                   if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json > /dev/null 2>&1; then
-                    COVERAGE=$(jq -r '.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0' reports/deploy-report.json 2>/dev/null | awk '{sum += $1} END {print (NR > 0 ? sum/NR : 0)}' || echo "0")
+                    COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
                     COVERAGE=${COVERAGE%.*}
                     echo "📊 **Coverage Achieved:** ${COVERAGE}%"
                     
@@ -588,3 +547,28 @@ jobs:
             echo "🔍 Static Code Analysis: ✅ No violations"
             echo "📊 Code Quality: 🟢 Excellent (0 violations)"
           fi
+
+      - name: Enforce Validation Result
+        if: always()
+        run: |
+          set -uo pipefail
+
+          echo "Enforcing validation result..."
+
+          if [ ! -f reports/deploy-report.json ]; then
+            echo "❌ No deploy report found (reports/deploy-report.json). Failing the job."
+            exit 1
+          fi
+
+          # Read status, component failures, test failures, coverage
+          STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
+          COMPONENT_FAIL_COUNT=0
+          if jq -e '.result.details.componentFailures' reports/deploy-report.json >/dev/null 2>&1; then
+            COMPONENT_FAIL_COUNT=$(jq '.result.details.componentFailures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+          fi
+          TEST_FAIL_COUNT=0
+          if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json >/dev/null 2>&1; then
+            TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+          fi
+          COVERAGE=0
+          if jq -e '.result.details.runTestResult.codeCoverage' reports/de
