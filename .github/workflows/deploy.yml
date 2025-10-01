@@ -166,6 +166,94 @@ jobs:
             echo "✅ No LWC violations found!"
           fi
 
+      - name: Map tests to Apex classes in delta (dynamic)
+        id: test-map
+        run: |
+          set -euo pipefail
+
+          # Parse ApexClass members from package.xml
+          APEX_CLASSES=$(awk '
+            /<types>/ { inTypes=1; next }
+            inTypes && /<\/types>/ { inTypes=0; apex=0; next }
+            inTypes && /<name>ApexClass<\/name>/ { apex=1; next }
+            inTypes && apex && /<members>/ {
+              gsub(/.*<members>|<\/members>.*/,""); print
+            }
+          ' delta/package/package.xml 2>/dev/null | tr '\n' ' ' | sed 's/ *$//') || true
+
+          # Identify which of those are tests (by @isTest) vs prod classes
+          TESTS_IN_DELTA=""
+          PROD_CLASSES=""
+          if [ -n "${APEX_CLASSES:-}" ]; then
+            for c in $APEX_CLASSES; do
+              f=$(find delta/force-app -path "*/classes/${c}.cls" | head -n1 || true)
+              if [ -n "$f" ] && grep -qi "@isTest" "$f"; then
+                TESTS_IN_DELTA="$TESTS_IN_DELTA $c"
+              else
+                PROD_CLASSES="$PROD_CLASSES $c"
+              fi
+            done
+            TESTS_IN_DELTA=$(echo "$TESTS_IN_DELTA" | xargs -n1 | sort -u | xargs || true)
+            PROD_CLASSES=$(echo "$PROD_CLASSES" | xargs -n1 | sort -u | xargs || true)
+          fi
+
+          # Build mapping: for each prod class, find test classes in delta that reference it
+          RELATED_TESTS=""
+          echo "{" > reports/test-mapping.json
+          echo '  "mapping": [' >> reports/test-mapping.json
+
+          SEP=""
+          if [ -n "${PROD_CLASSES:-}" ] && [ -n "${TESTS_IN_DELTA:-}" ]; then
+            for pc in $PROD_CLASSES; do
+              FOUND=""
+              # Scan only test files in delta
+              while IFS= read -r tf; do
+                if grep -qiE "(new[[:space:]]+${pc}\b|${pc}\.[A-Za-z_]|${pc}[[:space:]]*\()" "$tf"; then
+                  bn=$(basename "${tf%.*}")
+                  FOUND="$FOUND $bn"
+                fi
+              done < <(find delta/force-app -path "*/classes/*.cls" -print0 | xargs -0 -I{} sh -c 'grep -qi "@isTest" "{}" && echo "{}"' || true)
+
+              FOUND=$(echo "$FOUND" | xargs -n1 | sort -u | xargs || true)
+              [ -n "$FOUND" ] && RELATED_TESTS="$RELATED_TESTS $FOUND"
+
+              echo "$SEP    {\"apexClass\": \"${pc}\", \"tests\": [$(printf '%s\n' "$FOUND" | xargs -n1 | sed "s/.*/\"&\"/;1!s/^/, /" | tr -d '\n')]}" >> reports/test-mapping.json
+              SEP=","
+            done
+          fi
+
+          echo '  ]' >> reports/test-mapping.json
+          echo '}' >> reports/test-mapping.json
+
+          # Unique tests to run from mapping
+          RELATED_TESTS=$(echo "$RELATED_TESTS" | xargs -n1 | sort -u | xargs || true)
+
+          # Export for next steps
+          echo "APEX_CLASSES=$APEX_CLASSES" >> $GITHUB_ENV
+          echo "TESTS_IN_DELTA=$TESTS_IN_DELTA" >> $GITHUB_ENV
+          echo "RELATED_TESTS=$RELATED_TESTS" >> $GITHUB_ENV
+
+          # Write a Markdown table to the job summary
+          {
+            echo "### Test Mapping for Apex Classes in Delta"
+            echo ""
+            if [ -s reports/test-mapping.json ]; then
+              echo "| Apex Class | Tests Found in Delta |"
+              echo "|---|---|"
+              if [ -n "${PROD_CLASSES:-}" ]; then
+                for pc in $PROD_CLASSES; do
+                  row=$(jq -r --arg pc "$pc" '.mapping[] | select(.apexClass==$pc) | .tests | join(", ")' reports/test-mapping.json)
+                  [ -z "$row" ] && row="-"
+                  echo "| $pc | $row |"
+                done
+              else
+                echo "| (none) | (none) |"
+              fi
+            else
+              echo "_No mapping produced_"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Validate Delta Deployment with Dynamic Test Classes
         id: validate_deploy
         run: |
@@ -178,13 +266,25 @@ jobs:
             if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
               echo "🔍 Found Apex files, running tests..."
               
-              # Deploy with appropriate test level
-              sf project deploy start \
-                --source-dir delta/force-app \
-                --target-org sandbox \
-                --dry-run \
-                --test-level RunLocalTests \
-                --json > reports/deploy-report.json || true
+              # Prefer mapped tests; if none, fallback to RunLocalTests
+              if [ -n "${RELATED_TESTS:-}" ]; then
+                echo "Running mapped tests: $RELATED_TESTS"
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --dry-run \
+                  --test-level RunSpecifiedTests \
+                  --tests "$RELATED_TESTS" \
+                  --json > reports/deploy-report.json
+              else
+                echo "No mapped tests; running all local tests."
+                sf project deploy start \
+                  --source-dir delta/force-app \
+                  --target-org sandbox \
+                  --dry-run \
+                  --test-level RunLocalTests \
+                  --json > reports/deploy-report.json
+              fi
             else
               echo "📦 No Apex files found, skipping test execution"
               sf project deploy start \
@@ -192,7 +292,7 @@ jobs:
                 --target-org sandbox \
                 --dry-run \
                 --test-level NoTestRun \
-                --json > reports/deploy-report.json || true
+                --json > reports/deploy-report.json
             fi
           else
             echo "📭 No deployable metadata found in delta. Skipping validation."
@@ -285,4 +385,22 @@ jobs:
             echo ""
             echo "🔍 Static Code Analysis: ✅ No violations"
             echo "📊 Code Quality: 🟢 Excellent (0 violations)"
+          fi
+
+      - name: Enforce validation result (fail job if validation failed)
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f reports/deploy-report.json ]; then
+            STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
+            if [ "$STATUS" = "Succeeded" ] || [ "$STATUS" = "Skipped" ]; then
+              echo "Validation outcome: $STATUS"
+              exit 0
+            else
+              echo "Validation outcome: $STATUS"
+              exit 1
+            fi
+          else
+            echo "No deploy-report.json produced; failing."
+            exit 1
           fi
