@@ -128,16 +128,11 @@ run_code_analyzer() {
         else
           echo "  ✅ No violations found - code meets quality standards!"
         fi
+      else
+        echo "⚠️  Output file not found: $output_file"
+        mkdir -p reports
+        echo '[]' > "$output_file"
       fi
-
-    else
-      echo ""
-      echo "⚠️  $component_type analysis completed with warnings"
-      echo "📄 Analyzer output:"
-      cat /tmp/code_analyzer_${component_type}.log 2>/dev/null || echo "  (no output available)"
-      # Still create empty report file
-      mkdir -p reports
-      echo '{"violations":[]}' > "$output_file"
     fi
 
   else
