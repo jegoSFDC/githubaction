@@ -20,8 +20,8 @@
 set -euo pipefail
 
 echo ""
-echo "🚀 STAGE 6: DRY-RUN VALIDATION & QUALITY GATES"
-echo "=============================================="
+echo "🚀 STAGE 6: DRY-RUN VALIDATION & QUALITY GATES SUMMARY"
+echo "======================================================"
 echo "🔍 Validating deployment with check-only mode (no actual deployment)..."
 
 # Create reports directory
@@ -160,10 +160,24 @@ fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📊 VALIDATION SUMMARY"
+echo "📊 DRY-RUN VALIDATION & QUALITY GATES SUMMARY"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Extract metrics from deploy report
+# Extract Code Analyzer results
+APEX_VIOLATIONS=0
+LWC_VIOLATIONS=0
+
+if [ -f reports/apex.json ]; then
+  APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
+fi
+
+if [ -f reports/lwc.json ]; then
+  LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
+fi
+
+TOTAL_VIOLATIONS=$((APEX_VIOLATIONS + LWC_VIOLATIONS))
+
+# Extract deployment validation metrics
 STATUS="Failed"
 COMPONENT_FAIL_COUNT=0
 TEST_FAIL_COUNT=0
@@ -186,6 +200,11 @@ if [ -f reports/deploy-report.json ]; then
   fi
 fi
 
+echo ""
+echo "🔍 Code Quality Analysis:"
+echo "  • Total Code Violations: $TOTAL_VIOLATIONS (Apex: $APEX_VIOLATIONS, LWC: $LWC_VIOLATIONS)"
+echo ""
+echo "🧪 Deployment Validation:"
 echo "  • Validation Status: ${STATUS}"
 echo "  • Component Failures: ${COMPONENT_FAIL_COUNT}"
 echo "  • Test Failures: ${TEST_FAIL_COUNT}"

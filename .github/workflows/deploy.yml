@@ -157,13 +157,13 @@ jobs:
         run: ./scripts/map_tests.sh
 
       # ---------------------------------------------------------------------------
-      # STAGE 6: DRY-RUN VALIDATION & QUALITY GATES
+      # STAGE 6: DRY-RUN VALIDATION & QUALITY GATES SUMMARY
       # ---------------------------------------------------------------------------
-      # Execute check-only deployment validation with test execution and enforce
-      # quality gates including coverage thresholds and test success criteria
+      # Execute check-only deployment validation with test execution, display
+      # comprehensive summary including code violations, and enforce quality gates
       # ---------------------------------------------------------------------------
 
-      - name: Execute Dry-Run Validation with Quality Gates
+      - name: Execute Dry-Run Validation with Quality Gates Summary
         run: ./scripts/validate_deployment.sh
 
       - name: Analyze Code Coverage for Delta Classes
