@@ -199,43 +199,71 @@ jobs:
             echo "✅ No LWC violations found!"
           fi
 
-      - name: Validate Delta Deployment with Dynamic Test Classes
+      - name: Validate with Test Selection
         id: validate_deploy
         run: |
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Delta found. Proceeding with validation..."
+            echo "Analyzing delta for specified test execution..."
             
-            # Extract test classes from package.xml dynamically
-            if [ -f "delta/package/package.xml" ]; then
-              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | \
-                sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ' ' | sed 's/ $//')
+            # Get Apex classes being deployed
+            APEX_CLASSES=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
+              grep -o '<members>[^<]*</members>' | \
+              sed 's/<members>//g; s/<\/members>//g' | \
+              grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+            
+            # Get test classes being deployed
+            DEPLOYED_TESTS=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
+              grep -o '<members>[^<]*</members>' | \
+              sed 's/<members>//g; s/<\/members>//g' | \
+              grep -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+            
+            if [ -n "$APEX_CLASSES" ]; then
+              echo "🔧 Apex classes being deployed: $APEX_CLASSES"
               
-              if [ -n "$TEST_CLASSES" ]; then
-                echo "Running specified test classes: $TEST_CLASSES"
+              # Find corresponding test classes for deployed Apex classes
+              RELATED_TESTS=""
+              for class in $APEX_CLASSES; do
+                # Look for test class with same base name
+                TEST_CLASS="${class}Test"
+                if echo "$DEPLOYED_TESTS" | grep -q "$TEST_CLASS"; then
+                  RELATED_TESTS="$RELATED_TESTS $TEST_CLASS"
+                fi
+              done
+              
+              if [ -n "$RELATED_TESTS" ]; then
+                echo "🎯 Running related test classes: $(echo $RELATED_TESTS | sed 's/ $//')"
                 sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunSpecifiedTests \
-                  --tests $TEST_CLASSES
+                  --tests $(echo $RELATED_TESTS | sed 's/ $//')
               else
-                echo "No test classes found in package.xml, running local tests"
+                echo "⚠️  No related test classes found, running all local tests"
                 sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunLocalTests
               fi
-            else
-              echo "No package.xml found, running local tests"
+            elif [ -n "$DEPLOYED_TESTS" ]; then
+              echo "🧪 Only test classes being deployed: $DEPLOYED_TESTS"
               sf project deploy start \
                 --source-dir delta/force-app \
                 --target-org sandbox \
                 --dry-run \
-                --test-level RunLocalTests
+                --test-level RunSpecifiedTests \
+                --tests $DEPLOYED_TESTS
+            else
+              echo "📦 No Apex classes or test classes, skipping test execution"
+              sf project deploy start \
+                --source-dir delta/force-app \
+                --target-org sandbox \
+                --dry-run \
+                --test-level NoTestRun
             fi
           else
-            echo "No deployable metadata found in delta. Skipping validation."
+            echo "📭 No deployable metadata found in delta. Skipping validation."
           fi
 
       - name: Deployment Summary Report
