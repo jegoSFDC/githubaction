@@ -131,15 +131,16 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
     fi
 
   else
-    summary "📄 Metadata-only deployment (LWC/Config) - no tests required"
+    summary "📄 Non-Apex deployment detected - no test execution required"
     
     echo ""
-    echo "⚙️  EXECUTING METADATA-ONLY VALIDATION"
-    echo "====================================="
+    echo "⚙️  EXECUTING METADATA VALIDATION (NO TESTS)"
+    echo "============================================"
     echo ""
     echo "📋 Validation Details:"
     echo "  • Mode: Dry-run (check-only - no actual deployment)"
-    echo "  • Type: Metadata-only (no Apex code)"
+    echo "  • Components: Flows, LWC, Custom Objects, or other metadata"
+    echo "  • Test Level: NoTestRun (Apex tests not required)"
     echo "  • Environment: Sandbox"
     echo ""
     
