@@ -123,3 +123,6 @@ else
   # Don't exit with error code for normal "no changes" scenario
   exit 0
 fi
+
+# Ensure script always exits successfully
+exit 0
