@@ -148,12 +148,12 @@ jobs:
           retention-days: 30
 
       # ---------------------------------------------------------------------------
-      # STAGE 5: INTELLIGENT TEST EXECUTION
+      # STAGE 5: APEX TEST CLASS IDENTIFICATION
       # ---------------------------------------------------------------------------
-      # Analyze changes and execute targeted tests with fallback strategies
+      # Identify Apex classes and their corresponding test classes
       # ---------------------------------------------------------------------------
 
-      - name: Analyze Changes and Map Test Classes
+      - name: Identify Apex Test Classes
         run: ./scripts/map_tests.sh
 
       - name: Execute Deployment Validation

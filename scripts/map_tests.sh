@@ -1,215 +1,141 @@
 #!/bin/bash
 # ==============================================================================
-# Intelligent Test Mapping Script
+# Apex Test Class Identification
 # ==============================================================================
-# Analyzes deployment delta package to identify changed Apex classes and
-# intelligently maps them to relevant test classes for targeted testing.
-#
-# Algorithm:
-#   1. Extract Apex classes from delta package.xml
-#   2. Classify classes as production vs test classes using @isTest annotation
-#   3. Map production classes to related test classes using naming patterns
-#   4. Generate test execution strategy with fallback options
-#
-# Test Discovery Patterns:
-#   - Test class naming conventions (ClassNameTest, ClassName_Test)
-#   - Direct instantiation patterns (new ClassName())
-#   - Method invocation patterns (ClassName.methodName())
-#   - Static method calls (ClassName.staticMethod())
+# Identifies Apex classes and their corresponding test classes in the delta
+# package for targeted test execution.
 #
 # Output:
-#   - JSON mapping file for test relationships
-#   - Environment variables for downstream pipeline steps
+#   - List of Apex classes found in delta
+#   - List of test classes to execute
+#   - JSON mapping file for reference
 # ==============================================================================
 
 set -euo pipefail
 
 echo ""
-echo "🚀 STAGE 5: INTELLIGENT TEST EXECUTION"
-echo "===================================="
-echo "🧠 Analyzing delta package for intelligent test mapping..."
+echo "🚀 STAGE 5: APEX TEST CLASS IDENTIFICATION"
+echo "=========================================="
 
-# Initialize tracking variables
-TESTS_IN_DELTA=""
-PROD_CLASSES=""
-RELATED_TESTS=""
+# Create reports directory
+mkdir -p reports
 
-# Function to classify Apex classes and map tests
-classify_and_map_tests() {
-  local apex_classes="$1"
+# Check if deployment package exists
+if [ "${HAS_DEPLOYMENT_PACKAGE:-true}" = "false" ]; then
+  echo "⏭️  Skipped - No deployment package to process"
+  echo '{"result":"No deployment package","classes":[],"tests":[]}' > reports/test-mapping.json
+  echo "RELATED_TESTS=" >> "$GITHUB_ENV"
+  exit 0
+fi
 
+# Check if package.xml exists
+if [ ! -f "delta/package/package.xml" ]; then
+  echo "⏭️  Skipped - No package.xml found"
+  echo '{"result":"No package.xml found","classes":[],"tests":[]}' > reports/test-mapping.json
+  echo "RELATED_TESTS=" >> "$GITHUB_ENV"
+  exit 0
+fi
+
+# Extract Apex classes from package.xml
+echo "📦 Scanning package.xml for Apex classes..."
+DELTA_APEX_CLASSES=$(grep -oP '(?<=<members>).*?(?=</members>)' delta/package/package.xml 2>/dev/null | grep -v '^$' | tr '\n' ' ' | sed 's/ *$//' || echo "")
+
+if [ -z "$DELTA_APEX_CLASSES" ]; then
+  echo "ℹ️  No Apex classes found in package.xml"
+  echo '{"result":"No Apex classes in delta","classes":[],"tests":[]}' > reports/test-mapping.json
+  echo "RELATED_TESTS=" >> "$GITHUB_ENV"
+  exit 0
+fi
+
+echo "📋 Apex classes in delta: $DELTA_APEX_CLASSES"
+echo ""
+
+# Check if classes directory exists
+if [ ! -d "delta/force-app/main/default/classes" ]; then
+  echo "ℹ️  No Apex classes directory found (metadata-only deployment)"
+  echo "{\"result\":\"Metadata-only deployment\",\"classes\":[],\"tests\":[]}" > reports/test-mapping.json
+  echo "RELATED_TESTS=" >> "$GITHUB_ENV"
+  exit 0
+fi
+
+# Separate test classes from regular classes
+ALL_TESTS=""
+ALL_CLASSES=""
+
+echo "🔍 Identifying test classes..."
+for cls in $DELTA_APEX_CLASSES; do
+  file_path=$(find delta/force-app force-app -path "*/classes/${cls}.cls" 2>/dev/null | head -n1)
+  
+  if [ -z "$file_path" ]; then
+    echo "  ⚠️  ${cls}: File not found"
+    continue
+  fi
+  
+  # Check if it's a test class (contains @isTest or @IsTest)
+  if grep -qiE "@isTest|@IsTest" "$file_path" 2>/dev/null; then
+    echo "  ✓ ${cls} → Test class"
+    ALL_TESTS="$ALL_TESTS $cls"
+  else
+    echo "  ✓ ${cls} → Regular class"
+    ALL_CLASSES="$ALL_CLASSES $cls"
+  fi
+done
+
+# Clean up whitespace
+ALL_TESTS=$(echo "$ALL_TESTS" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+ALL_CLASSES=$(echo "$ALL_CLASSES" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+
+echo ""
+echo "📊 Summary:"
+echo "  • Regular Apex classes: ${ALL_CLASSES:-none}"
+echo "  • Test classes: ${ALL_TESTS:-none}"
+
+# Find which tests cover which classes (simple name matching)
+MAPPED_TESTS=""
+if [ -n "$ALL_CLASSES" ] && [ -n "$ALL_TESTS" ]; then
   echo ""
-  echo "📋 Processing Apex classes: $apex_classes"
-
-  for class in $apex_classes; do
-    local file_path
-    file_path=$(find delta/force-app force-app -path "*/classes/${class}.cls" 2>/dev/null | head -n1)
-
-    if [ -z "$file_path" ]; then
-      echo "  ⚠️  ${class}: Source file not found - treating as production class"
-      PROD_CLASSES="$PROD_CLASSES $class"
-      continue
-    fi
-
-    # Check if class is a test class using @isTest annotation
-    if grep -qi "@isTest" "$file_path"; then
-      echo "  ✅ ${class}: Identified as test class"
-      TESTS_IN_DELTA="$TESTS_IN_DELTA $class"
-    else
-      echo "  ✅ ${class}: Identified as production class"
-      PROD_CLASSES="$PROD_CLASSES $class"
-    fi
-  done
-
-  # Normalize class lists
-  TESTS_IN_DELTA=$(echo "$TESTS_IN_DELTA" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
-  PROD_CLASSES=$(echo "$PROD_CLASSES" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
-
-  echo ""
-  echo "📊 Classification Results:"
-  echo "  Production classes: ${PROD_CLASSES:-none}"
-  echo "  Test classes: ${TESTS_IN_DELTA:-none}"
-}
-
-# Function to map production classes to related test classes
-map_production_to_tests() {
-  echo ""
-  echo "🔗 Mapping production classes to test classes..."
-
-  # Initialize JSON output for test mapping
-  echo "📄 Generating test mapping JSON file..."
-  echo "{" > reports/test-mapping.json
-  echo '  "mapping": [' >> reports/test-mapping.json
-  local separator=""
-
-  if [ -n "$PROD_CLASSES" ] && [ -n "$TESTS_IN_DELTA" ]; then
-    echo "🔍 Analyzing relationships between production and test classes..."
-    for prod_class in $PROD_CLASSES; do
-      local found_tests=""
-
-      for test_class in $TESTS_IN_DELTA; do
-        local test_file
-        test_file=$(find delta/force-app force-app -path "*/classes/${test_class}.cls" 2>/dev/null | head -n1)
-
-        if [ -n "$test_file" ]; then
-          # Look for patterns that suggest this test covers the production class
-          if grep -qiE "(new[[:space:]]+${prod_class}\b|${prod_class}\.[A-Za-z_]|${prod_class}[[:space:]]*\()" "$test_file"; then
-            found_tests="$found_tests $test_class"
-          fi
-        fi
-      done
-
-      # Normalize found test classes
-      found_tests=$(echo "$found_tests" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
-
-      if [ -n "$found_tests" ]; then
-        RELATED_TESTS="$RELATED_TESTS $found_tests"
+  echo "🔗 Mapping tests to classes:"
+  for cls in $ALL_CLASSES; do
+    for test in $ALL_TESTS; do
+      # Check if test references the class by name
+      test_file=$(find delta/force-app force-app -path "*/classes/${test}.cls" 2>/dev/null | head -n1)
+      if [ -n "$test_file" ] && grep -qE "\b${cls}\b" "$test_file" 2>/dev/null; then
+        echo "  ✓ ${test} tests ${cls}"
+        MAPPED_TESTS="$MAPPED_TESTS $test"
       fi
-
-      # Generate JSON mapping entry
-      if [ -n "$found_tests" ]; then
-        local json_tests
-        json_tests=$(echo "$found_tests" | xargs -n1 | sed 's/^/"/;s/$/"/' | paste -sd, -)
-      else
-        local json_tests=""
-      fi
-
-      echo "$separator    {\"apexClass\": \"${prod_class}\", \"tests\": [${json_tests}]}" >> reports/test-mapping.json
-      separator=","
     done
-  fi
+  done
+  MAPPED_TESTS=$(echo "$MAPPED_TESTS" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+fi
 
-  echo '  ]' >> reports/test-mapping.json
-  echo '}' >> reports/test-mapping.json
+# If no mapped tests found, use all test classes
+if [ -z "$MAPPED_TESTS" ] && [ -n "$ALL_TESTS" ]; then
+  MAPPED_TESTS="$ALL_TESTS"
+  echo "  ℹ️  No specific mappings found, will use all test classes"
+fi
 
-  # Normalize related tests list
-  RELATED_TESTS=$(echo "$RELATED_TESTS" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+echo ""
+if [ -n "$MAPPED_TESTS" ]; then
+  echo "✅ Tests to execute: $MAPPED_TESTS"
+else
+  echo "ℹ️  No test classes identified - will use RunLocalTests"
+fi
 
-  echo ""
-  echo "✅ Test mapping completed"
-  echo "📋 Tests identified for execution: ${RELATED_TESTS:-none (will use RunLocalTests fallback)}"
+# Save to environment and JSON
+echo "RELATED_TESTS=$MAPPED_TESTS" >> "$GITHUB_ENV"
+echo "APEX_CLASSES=$DELTA_APEX_CLASSES" >> "$GITHUB_ENV"
+echo "DELTA_APEX_CLASSES=$DELTA_APEX_CLASSES" >> "$GITHUB_ENV"
+echo "TESTS_IN_DELTA=$ALL_TESTS" >> "$GITHUB_ENV"
+
+# Create JSON report
+cat > reports/test-mapping.json <<EOF
+{
+  "classes": $(echo "$ALL_CLASSES" | xargs -n1 2>/dev/null | jq -R . | jq -s . || echo '[]'),
+  "tests": $(echo "$ALL_TESTS" | xargs -n1 2>/dev/null | jq -R . | jq -s . || echo '[]'),
+  "mapped_tests": $(echo "$MAPPED_TESTS" | xargs -n1 2>/dev/null | jq -R . | jq -s . || echo '[]')
 }
+EOF
 
-# Main execution flow
-main() {
-  # Extract Apex classes from delta package
-  if [ -f delta/package/package.xml ]; then
-    echo "📦 Extracting Apex classes from delta package.xml..."
-
-    DELTA_APEX_CLASSES=$(python3 - <<'PY'
-from pathlib import Path
-import xml.etree.ElementTree as ET
-
-package_path = Path("delta/package/package.xml")
-classes = []
-if package_path.exists():
-    try:
-        tree = ET.parse(package_path)
-        ns = {"md": "http://soap.sforce.com/2006/04/metadata"}
-        root = tree.getroot()
-        for types in root.findall('md:types', ns):
-            name = types.findtext('md:name', default='', namespaces=ns)
-            if name == "ApexClass":
-                for members in types.findall('md:members', ns):
-                    value = (members.text or '').strip()
-                    if value:
-                        classes.append(value)
-    except ET.ParseError:
-        pass
-
-print(' '.join(classes))
-PY
-)
-
-    echo "📋 Apex classes in delta: ${DELTA_APEX_CLASSES:-none}"
-  else
-    echo "⚠️  No delta/package/package.xml found"
-    DELTA_APEX_CLASSES=""
-  fi
-
-  # Find actual .cls files in delta
-  if [ -d "delta/force-app/main/default/classes" ]; then
-    APEX_CLASSES=$(find delta/force-app/main/default/classes -name '*.cls' -maxdepth 1 -exec basename {} .cls \; 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-  else
-    APEX_CLASSES=""
-  fi
-
-  if [ -n "$APEX_CLASSES" ]; then
-    classify_and_map_tests "$APEX_CLASSES"
-    map_production_to_tests
-
-    # Export environment variables for downstream steps
-    echo "APEX_CLASSES=$APEX_CLASSES" >> "$GITHUB_ENV"
-    echo "DELTA_APEX_CLASSES=$DELTA_APEX_CLASSES" >> "$GITHUB_ENV"
-    echo "TESTS_IN_DELTA=$TESTS_IN_DELTA" >> "$GITHUB_ENV"
-    echo "RELATED_TESTS=$RELATED_TESTS" >> "$GITHUB_ENV"
-
-    echo ""
-    echo "📈 Test mapping summary:"
-    echo "  • Production classes requiring tests: $(echo "$PROD_CLASSES" | wc -w)"
-    echo "  • Test classes available in delta: $(echo "$TESTS_IN_DELTA" | wc -w)"
-    echo "  • Related test classes identified: $(echo "$RELATED_TESTS" | wc -w)"
-
-  else
-    echo "ℹ️  No Apex classes found in delta - no test mapping required"
-
-    # Set empty environment variables for downstream compatibility
-    echo "APEX_CLASSES=" >> "$GITHUB_ENV"
-    echo "DELTA_APEX_CLASSES=" >> "$GITHUB_ENV"
-    echo "TESTS_IN_DELTA=" >> "$GITHUB_ENV"
-    echo "RELATED_TESTS=" >> "$GITHUB_ENV"
-
-    # Create empty test mapping file for consistency
-    echo '{"result":"No Apex classes found","message":"Skipping test mapping for metadata-only changes"}' > reports/test-mapping.json
-
-    # DO NOT override HAS_DEPLOYMENT_PACKAGE here - it was set correctly in generate_delta.sh
-    # based on ALL metadata types, not just Apex classes
-  fi
-
-  echo ""
-  echo "✅ STAGE 5 COMPLETED: Test mapping analysis finished"
-  echo "==============================================="
-}
-
-# Execute main function
-main
+echo ""
+echo "✅ STAGE 5 COMPLETED: Test identification finished"
+echo "=============================================="
