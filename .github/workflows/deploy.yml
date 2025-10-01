@@ -1,4 +1,4 @@
-name: Salesforce CI/CD
+name: Salesforce CI/CD Pipeline
 
 on:
   pull_request:
@@ -8,98 +8,172 @@ on:
     branches:
       - main
 
+env:
+  # ==============================================================================
+  # QUALITY GATE CONFIGURATION
+  # ==============================================================================
+  # Organizational standards for code quality and deployment validation
+  SEVERITY_THRESHOLD: 3  # High/Critical violations only (1=all, 2=medium+, 3=high+, 4=critical)
+  COVERAGE_THRESHOLD: 75 # Minimum code coverage percentage required
+
 jobs:
-  pr-validation:
-    name: PR Validation
+  # ==============================================================================
+  # COMPREHENSIVE DEPLOYMENT VALIDATION PIPELINE
+  # ==============================================================================
+  # Validates all changes against organizational standards including:
+  # - Static code analysis for security and quality violations
+  # - Intelligent test selection and execution
+  # - Code coverage verification against delta package
+  # - Component deployment validation
+  # - Comprehensive quality gate enforcement
+  # ==============================================================================
+
+  deployment-validation:
+    name: Salesforce Deployment Quality Gates
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    container: salesforce/salesforcedx:latest-full
-    
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+
     steps:
-      - name: Checkout Repository with full history
+      # ---------------------------------------------------------------------------
+      # STAGE 1: ENVIRONMENT CONFIGURATION
+      # ---------------------------------------------------------------------------
+      # Prepare runtime environment with required tools and dependencies
+      # ---------------------------------------------------------------------------
+
+      - name: Initialize Repository Context
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Authenticate Salesforce (PR Validation)
-        env:
-          SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
-        run: |
-          echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --setalias sandbox --setdefaultusername
-
-      - name: Create Delta Output Directory
-        run: mkdir -p delta
-
-      - name: Install sfdx-git-delta Plugin
-        run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
-
-      - name: Generate Delta using sfdx-git-delta
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from origin/main --output delta --generate-delta
-
-      - name: Validate Delta Deployment with Specific Test Class
-        run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Delta found. Proceeding with validation..."
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org sandbox \
-              --dry-run \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
-          else
-            echo "No deployable metadata found in delta. Skipping validation."
-          fi
-
-  deploy-to-sandbox:
-    name: Deploy to Sandbox
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    container: salesforce/salesforcedx:latest-full
-
-    steps:
-      - name: Checkout Repository with full history
-        uses: actions/checkout@v4
+      - name: Configure Java Runtime Environment
+        uses: actions/setup-java@v4
         with:
-          fetch-depth: 0
+          distribution: 'temurin'
+          java-version: '11'
 
-      - name: Authenticate Salesforce (Deploy)
+      - name: Configure Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Optimize Salesforce CLI Performance
+        uses: actions/cache@v4
+        with:
+          path: ~/.sf
+          key: sf-cli-${{ runner.os }}-${{ hashFiles('**/sfdx-project.json') }}
+          restore-keys: |
+            sf-cli-${{ runner.os }}-
+
+      - name: Install Salesforce CLI Tools
+        run: |
+          npm install -g @salesforce/cli --silent
+          sf --version
+
+      # ---------------------------------------------------------------------------
+      # STAGE 2: SALESFORCE ENVIRONMENT AUTHENTICATION
+      # ---------------------------------------------------------------------------
+      # Establish secure connection to target Salesforce environment
+      # ---------------------------------------------------------------------------
+
+      - name: Establish Salesforce Environment Connection
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
-        run: |
-          echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+        run: ./scripts/authenticate.sh
 
-      - name: Create Delta Output Directory
-        run: mkdir -p delta
+      # ---------------------------------------------------------------------------
+      # STAGE 3: DEPLOYMENT DELTA GENERATION
+      # ---------------------------------------------------------------------------
+      # Identify and package changes for incremental deployment validation
+      # ---------------------------------------------------------------------------
 
-      - name: Install sfdx-git-delta Plugin
+      - name: Install Delta Generation Dependencies
         run: |
-          echo y | sfdx plugins:install sfdx-git-delta
-          sfdx plugins --core
+          echo y | sf plugins install sfdx-git-delta
+          sf plugins --core
 
-      - name: Generate Delta using sfdx-git-delta (HEAD~1 to HEAD)
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main
-          sfdx sgd:source:delta --to HEAD --from HEAD~1 --output delta --generate-delta
+      - name: Generate Deployment Delta Package
+        id: generate-delta
+        env:
+          TARGET_BRANCH: ${{ github.base_ref || 'main' }}
+        run: ./scripts/generate_delta.sh
 
-      - name: Deploy Delta to Sandbox with Specific Test Class
-        run: |
-          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Deployable delta found. Deploying..."
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org sandbox \
-              --test-level RunSpecifiedTests \
-              --tests "ChangePasswordControllerTest" \
-              --verbose
-          else
-            echo "No deployable metadata found. Skipping deployment."
-          fi
+      # ---------------------------------------------------------------------------
+      # STAGE 4: STATIC CODE ANALYSIS
+      # ---------------------------------------------------------------------------
+      # Execute comprehensive code quality and security analysis
+      # ---------------------------------------------------------------------------
+
+      - name: Run Salesforce Code Analyzer for Apex
+        id: run-code-analyzer-apex
+        uses: forcedotcom/run-code-analyzer@v2
+        if: |
+          always() && 
+          (steps.generate-delta.outcome == 'success' || steps.generate-delta.outcome == 'failure') &&
+          (contains(steps.generate-delta.outputs.has-apex, 'true'))
+        with:
+          run-arguments: >
+            --target force-app/main/default/classes
+            --view detail
+            --output-file reports/apex.json
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-apex-results
+        continue-on-error: true
+
+      - name: Run Salesforce Code Analyzer for LWC
+        id: run-code-analyzer-lwc
+        uses: forcedotcom/run-code-analyzer@v2
+        if: |
+          always() && 
+          (steps.generate-delta.outcome == 'success' || steps.generate-delta.outcome == 'failure') &&
+          (contains(steps.generate-delta.outputs.has-lwc, 'true'))
+        with:
+          run-arguments: >
+            --target force-app/main/default/lwc
+            --view detail
+            --output-file reports/lwc.json
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-lwc-results
+        continue-on-error: true
+
+      - name: Display Code Analysis Results
+        if: always()
+        run: ./scripts/analyze_code.sh
+
+      - name: Archive Code Analysis Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: static-code-analysis-reports
+          path: reports/
+          retention-days: 30
+
+      # ---------------------------------------------------------------------------
+      # STAGE 5: APEX TEST CLASS IDENTIFICATION
+      # ---------------------------------------------------------------------------
+      # Identify Apex classes and their corresponding test classes
+      # ---------------------------------------------------------------------------
+
+      - name: Identify Apex Test Classes
+        run: ./scripts/map_tests.sh
+
+      # ---------------------------------------------------------------------------
+      # STAGE 6: DRY-RUN VALIDATION & QUALITY GATES SUMMARY
+      # ---------------------------------------------------------------------------
+      # Execute check-only deployment validation with test execution, display
+      # comprehensive summary including code violations, and enforce quality gates
+      # ---------------------------------------------------------------------------
+
+      - name: Execute Dry-Run Validation with Quality Gates Summary
+        run: ./scripts/validate_deployment.sh
+
+      - name: Analyze Code Coverage for Delta Classes
+        if: always()
+        run: ./scripts/filter_coverage.sh
+
+      - name: Archive Validation Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-validation-reports
+          path: reports/
+          retention-days: 30
