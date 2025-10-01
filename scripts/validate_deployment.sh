@@ -153,9 +153,21 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
     summary "✅ Metadata validation completed"
   fi
 
+  # For metadata deployments, also show if scripts/YAML were modified
+  echo ""
+  echo "📝 Additional Files Modified (scripts/YAML):"
+  git diff --name-only "origin/${TARGET_BRANCH:-main}" HEAD 2>/dev/null | grep -E '\.(sh|yml|yaml|json|md)$' | head -20 || echo "  (no script/config changes detected)"
+  echo ""
+
 else
   summary "ℹ️  No deployable metadata - skipping validation"
   echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
+  
+  # Show what files were modified (script/YAML changes only)
+  echo ""
+  echo "📝 Files Modified in This Change:"
+  git diff --name-only "origin/${TARGET_BRANCH:-main}" HEAD 2>/dev/null | head -20 || echo "  (unable to determine changed files)"
+  echo ""
 fi
 
 echo ""

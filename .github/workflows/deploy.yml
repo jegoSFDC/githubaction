@@ -164,6 +164,8 @@ jobs:
       # ---------------------------------------------------------------------------
 
       - name: Execute Dry-Run Validation with Quality Gates Summary
+        env:
+          TARGET_BRANCH: ${{ github.base_ref || 'main' }}
         run: ./scripts/validate_deployment.sh
 
       - name: Analyze Code Coverage for Delta Classes
