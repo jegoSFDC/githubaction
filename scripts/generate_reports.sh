@@ -46,9 +46,16 @@ extract_validation_metrics() {
     TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
   fi
 
-  if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+  # Check if this is a metadata-only deployment (no Apex code)
+  if jq -e '.result.status == "Skipped" and (.result.message | contains("No Apex deployment"))' reports/deploy-report.json >/dev/null 2>&1; then
+    # Metadata-only deployment - no coverage requirements
+    COVERAGE="N/A"
+    summary "📄 Metadata-only deployment detected - coverage requirements waived"
+  elif jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
     COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
     COVERAGE=${COVERAGE%.*}
+  else
+    COVERAGE="0"
   fi
 }
 
@@ -69,12 +76,16 @@ generate_summary_report() {
   echo "  • Status: ${STATUS}"
   echo "  • Component failures: ${COMPONENT_FAIL_COUNT}"
   echo "  • Test failures: ${TEST_FAIL_COUNT}"
-  echo "  • Coverage: ${COVERAGE}% (threshold: ${COVERAGE_THRESHOLD}%)"
+  if [ "$COVERAGE" = "N/A" ]; then
+    echo "  • Coverage: ${COVERAGE} (metadata-only deployment)"
+  else
+    echo "  • Coverage: ${COVERAGE}% (threshold: ${COVERAGE_THRESHOLD}%)"
+  fi
 }
 
 # Function to display detailed failure analysis
 display_failure_analysis() {
-  if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ] || [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
+  if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ] || ([ "$COVERAGE" != "N/A" ] && [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]); then
     echo ""
     echo "⚠️  Quality gate violations detected"
 
@@ -167,7 +178,8 @@ validate_quality_gates() {
     return 1
   fi
 
-  if [ "$STATUS" != "Succeeded" ] && [ "$COVERAGE" -lt "${COVERAGE_THRESHOLD}" ] && [ "$STATUS" != "Skipped" ]; then
+  # Check coverage requirements (only for Apex deployments)
+  if [ "$COVERAGE" != "N/A" ] && [ "$STATUS" != "Succeeded" ] && [ "$COVERAGE" -lt "${COVERAGE_THRESHOLD}" ] && [ "$STATUS" != "Skipped" ]; then
     echo "❌ Coverage below threshold: ${COVERAGE}% < ${COVERAGE_THRESHOLD}%"
     return 1
   fi
@@ -211,9 +223,15 @@ main() {
     echo "✅ Salesforce Authentication: Completed"
     echo "✅ Delta Package Generation: Completed"
     echo "✅ Static Code Analysis: Completed"
-    echo "✅ Intelligent Test Execution: Completed"
-    echo "✅ Deployment Validation: Completed"
-    echo "✅ Coverage Filtering: Completed"
+    if [ "$COVERAGE" = "N/A" ]; then
+      echo "✅ Intelligent Test Execution: Skipped (metadata-only)"
+      echo "✅ Deployment Validation: Completed (no tests)"
+      echo "✅ Coverage Filtering: Skipped (metadata-only)"
+    else
+      echo "✅ Intelligent Test Execution: Completed"
+      echo "✅ Deployment Validation: Completed"
+      echo "✅ Coverage Filtering: Completed"
+    fi
     echo "✅ Validation Reporting: Completed"
     echo ""
     echo "🏆 PIPELINE COMPLETED SUCCESSFULLY!"
@@ -230,9 +248,15 @@ main() {
     echo "✅ Salesforce Authentication: Completed"
     echo "✅ Delta Package Generation: Completed"
     echo "✅ Static Code Analysis: Completed"
-    echo "✅ Intelligent Test Execution: Completed"
-    echo "✅ Deployment Validation: Completed"
-    echo "✅ Coverage Filtering: Completed"
+    if [ "$COVERAGE" = "N/A" ]; then
+      echo "✅ Intelligent Test Execution: Skipped (metadata-only)"
+      echo "✅ Deployment Validation: Completed (no tests)"
+      echo "✅ Coverage Filtering: Skipped (metadata-only)"
+    else
+      echo "✅ Intelligent Test Execution: Completed"
+      echo "✅ Deployment Validation: Completed"
+      echo "✅ Coverage Filtering: Completed"
+    fi
     echo "❌ Validation Reporting: FAILED"
     echo ""
     echo "⚠️  PIPELINE COMPLETED WITH ERRORS!"

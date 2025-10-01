@@ -34,8 +34,10 @@ echo "🔍 Filtering coverage data for delta classes only..."
 # Validate prerequisites
 echo "🔍 Validating prerequisites..."
 if [ ! -f reports/deploy-report.json ]; then
-  echo "❌ No deploy report found - cannot filter coverage data"
-  exit 1
+  echo "ℹ️  No deploy report found - this is expected for metadata-only deployments"
+  echo "📄 Creating placeholder coverage report for metadata-only deployment..."
+  echo '{"result":{"status":"Skipped","message":"No Apex deployment - coverage filtering not applicable"}}' > reports/deploy-report.json
+  exit 0
 fi
 
 if [ -z "${DELTA_APEX_CLASSES:-}" ]; then

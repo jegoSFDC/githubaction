@@ -91,7 +91,13 @@ main() {
     # Check for Apex components requiring test execution
     if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
       summary "🔧 Apex components detected - test execution required"
+      APEX_DEPLOYMENT=true
+    else
+      summary "📄 Metadata-only deployment detected - no test execution required"
+      APEX_DEPLOYMENT=false
+    fi
 
+    if [ "$APEX_DEPLOYMENT" = true ]; then
       # Use intelligent test selection if related tests are available
       if [ -n "${RELATED_TESTS:-}" ]; then
         local related_tests_csv
@@ -142,9 +148,9 @@ main() {
         echo "🔄 Executing deployment validation with full test suite..."
         execute_validation "RunLocalTests"
       fi
-
     else
-      summary "📄 Non-Apex metadata only - skipping test execution"
+      # Metadata-only deployment - no test execution required
+      summary "📄 Metadata-only deployment - skipping test execution"
       echo "🔄 Executing deployment validation without test execution..."
       execute_validation "NoTestRun"
     fi

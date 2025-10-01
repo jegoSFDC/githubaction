@@ -165,6 +165,15 @@ main() {
 
   else
     echo "ℹ️  No Apex classes found in delta - no test mapping required"
+
+    # Set empty environment variables for downstream compatibility
+    echo "APEX_CLASSES=" >> "$GITHUB_ENV"
+    echo "DELTA_APEX_CLASSES=" >> "$GITHUB_ENV"
+    echo "TESTS_IN_DELTA=" >> "$GITHUB_ENV"
+    echo "RELATED_TESTS=" >> "$GITHUB_ENV"
+
+    # Create empty test mapping file for consistency
+    echo '{"result":"No Apex classes found","message":"Skipping test mapping for metadata-only changes"}' > reports/test-mapping.json
   fi
 
   echo ""
