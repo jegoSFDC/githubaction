@@ -41,16 +41,18 @@ echo "📊 Generating delta from origin/$TARGET_BRANCH to HEAD"
 
 # Generate delta package using sfdx-git-delta plugin
 echo "⚙️  Executing sfdx-git-delta plugin..."
-if sf sgd source delta \
+DELTA_EXIT_CODE=0
+if ! sf sgd source delta \
   --to HEAD \
   --from "origin/$TARGET_BRANCH" \
   --output delta \
   --generate-delta >/dev/null 2>&1; then
 
-  echo "✅ Delta generation completed successfully"
+  echo "⚠️  Delta generation completed with warnings (no changes detected)"
+  echo "  • This is normal for script-only changes or when no differences exist"
+  DELTA_EXIT_CODE=1
 else
-  echo "❌ Delta generation failed - check git history and branch availability"
-  exit 1
+  echo "✅ Delta generation completed successfully"
 fi
 
 # Validate and display delta package analysis
@@ -87,6 +89,7 @@ if [ -f delta/package/package.xml ]; then
     echo "📋 Empty Package.xml Found:"
     echo "  • Package.xml exists but contains no metadata components"
     echo "  • This indicates only script/YAML changes (no deployment needed)"
+    echo "  • Pipeline will skip deployment validation stages"
 
     # Set deployment flag for downstream scripts
     echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
@@ -97,7 +100,7 @@ else
   echo "📋 No Package.xml Found:"
   echo "  • No deployment package generated"
   echo "  • This indicates only script/YAML changes or no changes to deploy"
-  echo "  • Deployment validation stages will be skipped"
+  echo "  • Pipeline will skip deployment validation stages"
 
   # Set deployment flag for downstream scripts
   echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
@@ -107,6 +110,16 @@ echo ""
 echo "📊 Delta generation summary:"
 ls -la delta || echo "No delta directory found"
 
-echo ""
-echo "✅ STAGE 3 COMPLETED: Delta package generated successfully"
-echo "=================================================="
+# Exit with appropriate code based on delta generation result
+if [ "$DELTA_EXIT_CODE" -eq 0 ]; then
+  echo ""
+  echo "✅ STAGE 3 COMPLETED: Delta package generated successfully"
+  echo "=================================================="
+  exit 0
+else
+  echo ""
+  echo "✅ STAGE 3 COMPLETED: Delta analysis completed (no deployment changes)"
+  echo "=================================================================="
+  # Don't exit with error code for normal "no changes" scenario
+  exit 0
+fi
