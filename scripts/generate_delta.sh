@@ -58,25 +58,49 @@ echo ""
 echo "📋 Delta Package Analysis:"
 echo "=========================="
 
-# Check for delta files
+# Check for delta files and deployment package
 DELTA_COUNT=$(find delta -type f | wc -l)
 echo "📁 Total files in delta: $DELTA_COUNT"
 
 if [ -f delta/package/package.xml ]; then
-  echo ""
-  echo "📦 Package.xml Preview (first 20 lines):"
-  sed -n '1,20p' delta/package/package.xml
+  # Check if package.xml has actual content (not just the basic structure)
+  PACKAGE_MEMBERS=$(grep -o '<members>.*</members>' delta/package/package.xml | grep -v '<members></members>' | wc -l)
 
-  echo ""
-  echo "🔍 Destructive Changes Analysis:"
-  if find delta -name "destructiveChanges*.xml" -exec echo "  Found: {}" \; -exec sed -n '1,20p' {} \; | head -10; then
-    echo "  ⚠️  Destructive changes detected in deployment package"
+  if [ "$PACKAGE_MEMBERS" -gt 0 ]; then
+    echo ""
+    echo "📦 Package.xml Preview (first 20 lines):"
+    sed -n '1,20p' delta/package/package.xml
+
+    echo ""
+    echo "🔍 Destructive Changes Analysis:"
+    if find delta -name "destructiveChanges*.xml" -exec echo "  Found: {}" \; -exec sed -n '1,20p' {} \; | head -10; then
+      echo "  ⚠️  Destructive changes detected in deployment package"
+    else
+      echo "  ✅ No destructive changes found"
+    fi
+
+    # Set deployment flag for downstream scripts
+    echo "HAS_DEPLOYMENT_PACKAGE=true" >> "$GITHUB_ENV"
+
   else
-    echo "  ✅ No destructive changes found"
+    echo ""
+    echo "📋 Empty Package.xml Found:"
+    echo "  • Package.xml exists but contains no metadata components"
+    echo "  • This indicates only script/YAML changes (no deployment needed)"
+
+    # Set deployment flag for downstream scripts
+    echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
   fi
+
 else
   echo ""
-  echo "⚠️  Warning: No package.xml found in delta package"
+  echo "📋 No Package.xml Found:"
+  echo "  • No deployment package generated"
+  echo "  • This indicates only script/YAML changes or no changes to deploy"
+  echo "  • Deployment validation stages will be skipped"
+
+  # Set deployment flag for downstream scripts
+  echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
 fi
 
 echo ""

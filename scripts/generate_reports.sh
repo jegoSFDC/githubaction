@@ -32,6 +32,11 @@ COMPONENT_FAIL_COUNT=0
 TEST_FAIL_COUNT=0
 COVERAGE=0
 
+# Logging function for consistent output formatting
+summary() {
+  echo "$1" | tee -a reports/validation-summary.txt
+}
+
 # Function to extract validation metrics from deploy report
 extract_validation_metrics() {
   if [ -f reports/deploy-report.json ]; then
@@ -70,7 +75,7 @@ generate_summary_report() {
   echo "Average coverage: ${COVERAGE}%" >> reports/validation-summary.txt
   echo "================================" >> reports/validation-summary.txt
 
-  # Display compact summary for pipeline logs
+  # Display compact summary for pipeline logs (without file logging)
   echo ""
   echo "📋 Validation Summary:"
   echo "  • Status: ${STATUS}"

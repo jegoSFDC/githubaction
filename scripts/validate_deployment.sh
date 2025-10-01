@@ -84,80 +84,91 @@ main() {
   echo "================================"
   summary "🚀 Starting deployment validation process..."
 
-  # Validate delta package exists and contains deployable content
-  if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-    summary "📦 Deployable metadata detected in delta package"
+  # Check if there's actually a deployment package to validate
+  if [ "${HAS_DEPLOYMENT_PACKAGE:-false}" = "true" ]; then
+    summary "📦 Deployment package detected - proceeding with validation"
 
-    # Check for Apex components requiring test execution
-    if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
-      summary "🔧 Apex components detected - test execution required"
-      APEX_DEPLOYMENT=true
-    else
-      summary "📄 Metadata-only deployment detected - no test execution required"
-      APEX_DEPLOYMENT=false
-    fi
+    # Validate delta package exists and contains deployable content
+    if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+      summary "📦 Deployable metadata detected in delta package"
 
-    if [ "$APEX_DEPLOYMENT" = true ]; then
-      # Use intelligent test selection if related tests are available
-      if [ -n "${RELATED_TESTS:-}" ]; then
-        local related_tests_csv
-        related_tests_csv=$(echo "$RELATED_TESTS" | xargs -n1 | paste -sd, - || echo "")
+      # Check for Apex components requiring test execution
+      if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
+        summary "🔧 Apex components detected - test execution required"
+        APEX_DEPLOYMENT=true
+      else
+        summary "📄 Metadata-only deployment detected - no test execution required"
+        APEX_DEPLOYMENT=false
+      fi
 
-        summary "🎯 Using intelligent test selection: ${related_tests_csv}"
+      # Execute deployment validation based on deployment type
+      if [ "$APEX_DEPLOYMENT" = true ]; then
+        # Apex deployment - run tests
+        if [ -n "${RELATED_TESTS:-}" ]; then
+          local related_tests_csv
+          related_tests_csv=$(echo "$RELATED_TESTS" | xargs -n1 | paste -sd, - || echo "")
 
-        # Execute validation with mapped tests
-        echo "🔄 Executing deployment validation with targeted tests..."
-        if execute_validation "RunSpecifiedTests" "$related_tests_csv"; then
-          summary "✅ Intelligent test execution successful"
+          summary "🎯 Using intelligent test selection: ${related_tests_csv}"
 
-          # Verify coverage meets threshold
-          local coverage
-          coverage=$(calculate_coverage "reports/deploy-report.json")
+          # Execute validation with mapped tests
+          echo "🔄 Executing deployment validation with targeted tests..."
+          if execute_validation "RunSpecifiedTests" "$related_tests_csv"; then
+            summary "✅ Intelligent test execution successful"
 
-          summary "📊 Code coverage achieved: ${coverage}%"
+            # Verify coverage meets threshold
+            local coverage
+            coverage=$(calculate_coverage "reports/deploy-report.json")
 
-          if [ "$coverage" -lt "${COVERAGE_THRESHOLD}" ]; then
-            summary "⚠️  Coverage below threshold (${COVERAGE_THRESHOLD}%) - attempting fallback"
+            summary "📊 Code coverage achieved: ${coverage}%"
+
+            if [ "$coverage" -lt "${COVERAGE_THRESHOLD}" ]; then
+              summary "⚠️  Coverage below threshold (${COVERAGE_THRESHOLD}%) - attempting fallback"
+              echo "🔄 Executing fallback with full test suite..."
+
+              # Fallback to full test suite
+              if execute_validation "RunLocalTests"; then
+                summary "✅ Fallback test execution successful"
+                mv reports/deploy-report-coverage.json reports/deploy-report.json 2>/dev/null || true
+              else
+                summary "❌ Fallback test execution failed"
+              fi
+            else
+              summary "✅ Coverage threshold met - no fallback required"
+            fi
+
+          else
+            summary "⚠️  Intelligent test execution failed - attempting fallback"
             echo "🔄 Executing fallback with full test suite..."
 
             # Fallback to full test suite
             if execute_validation "RunLocalTests"; then
               summary "✅ Fallback test execution successful"
-              mv reports/deploy-report-coverage.json reports/deploy-report.json 2>/dev/null || true
             else
               summary "❌ Fallback test execution failed"
             fi
-          else
-            summary "✅ Coverage threshold met - no fallback required"
           fi
 
         else
-          summary "⚠️  Intelligent test execution failed - attempting fallback"
-          echo "🔄 Executing fallback with full test suite..."
-
-          # Fallback to full test suite
-          if execute_validation "RunLocalTests"; then
-            summary "✅ Fallback test execution successful"
-          else
-            summary "❌ Fallback test execution failed"
-          fi
+          summary "ℹ️  No related tests identified - executing full test suite"
+          echo "🔄 Executing deployment validation with full test suite..."
+          execute_validation "RunLocalTests"
         fi
-
       else
-        summary "ℹ️  No related tests identified - executing full test suite"
-        echo "🔄 Executing deployment validation with full test suite..."
-        execute_validation "RunLocalTests"
+        # Metadata-only deployment - no test execution required
+        summary "📄 Metadata-only deployment - skipping test execution"
+        echo "🔄 Executing deployment validation without test execution..."
+        execute_validation "NoTestRun"
       fi
+
     else
-      # Metadata-only deployment - no test execution required
-      summary "📄 Metadata-only deployment - skipping test execution"
-      echo "🔄 Executing deployment validation without test execution..."
-      execute_validation "NoTestRun"
+      summary "⚠️  No deployable content found in delta package"
+      echo '{"result":{"status":"Skipped","message":"No deployable metadata found"}}' > reports/deploy-report.json
     fi
 
   else
-    summary "⚠️  No deployable metadata found - skipping validation"
-    echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
+    summary "📋 No deployment package detected - skipping deployment validation"
+    summary "ℹ️  This is expected for script/YAML-only changes"
+    echo '{"result":{"status":"Skipped","message":"No deployment package to validate - script/YAML changes only"}}' > reports/deploy-report.json
   fi
 
   summary "🏁 Deployment validation process completed"
