@@ -72,12 +72,9 @@ jobs:
           sf sgd source delta --to HEAD --from origin/${{ github.base_ref }} --output delta --generate-delta
           ls -la delta || true
 
-      - name: Show Generated Package.xml Files
+      - name: Show Generated package.xml (delta)
         run: |
-          echo "=== Delta Directory Structure ==="
-          find delta -type f | head -20 || echo "No delta files found"
-          echo ""
-          echo "=== package.xml (delta) if exists ==="
+          echo "=== Delta package.xml (first 200 lines) ==="
           [ -f delta/package/package.xml ] && sed -n '1,200p' delta/package/package.xml || echo "No package.xml in delta"
           echo ""
 
@@ -103,9 +100,9 @@ jobs:
             --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
         continue-on-error: true
 
-      - name: Upload Code Analysis Reports
-        uses: actions/upload-artifact@v4
+      - name: Upload Code Analyzer Reports
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: code-analysis-reports
           path: reports/
@@ -114,80 +111,77 @@ jobs:
       - name: Analyze Delta and Map Test Classes
         id: analyze_delta
         run: |
-          echo "🔍 Test mapping and delta membership extraction"
+          set -euo pipefail
           mkdir -p reports
 
-          # Extract apex class members from delta package.xml (if exists)
-          DELTA_MEMBERS=""
+          # Extract apex class members from delta/package/package.xml (if present)
           if [ -f delta/package/package.xml ]; then
-            DELTA_MEMBERS=$(grep '<members>' delta/package/package.xml | sed -E 's/.*<members>([^<]+)<\/members>.*/\1/' | tr '\n' ' ' | xargs -n1 | sort -u | xargs || true)
+            grep '<members>' delta/package/package.xml | sed -E 's/.*<members>([^<]+)<\/members>.*/\1/' | tr '\n' ' ' | xargs -n1 | sort -u > /tmp/delta_members.txt || true
+            echo "Delta members (from delta/package/package.xml):"
+            sed -n '1,200p' /tmp/delta_members.txt || true
+          else
+            echo "No delta/package/package.xml found."
+            : > /tmp/delta_members.txt
           fi
 
-          echo "Delta members (from delta/package/package.xml): ${DELTA_MEMBERS:-<none>}"
-          echo "DELTA_MEMBERS=${DELTA_MEMBERS}" >> $GITHUB_ENV
+          # Find .cls files in delta (list of apex class filenames without extension)
+          find delta/force-app -path "*/classes/*.cls" -maxdepth 5 -type f -print 2>/dev/null | \
+            xargs -n1 basename 2>/dev/null | sed 's/\.cls$//' | sort -u > /tmp/delta_apex_classes.txt || true
+          echo "Apex classes present in delta (file-scan):"
+          sed -n '1,200p' /tmp/delta_apex_classes.txt || true
 
-          # Existing mapping logic (unchanged)
-          APEX_CLASSES=$(find delta/force-app/main/default/classes -name '*.cls' -maxdepth 1 -exec basename {} .cls \; | tr '\n' ' ' | sed 's/ *$//')
-          echo "APEX_CLASSES=$APEX_CLASSES" >> $GITHUB_ENV
-
+          # Map tests (heuristic): collect test classes in delta and production classes
           TESTS_IN_DELTA=""
           PROD_CLASSES=""
-
-          if [ -n "$APEX_CLASSES" ]; then
-            for cls in $APEX_CLASSES; do
-              file_path=$(find delta/force-app force-app -path "*/classes/${cls}.cls" 2>/dev/null | head -n1)
-              if [ -z "$file_path" ]; then
-                PROD_CLASSES="$PROD_CLASSES $cls"
-                continue
-              fi
-              if grep -qi "@isTest" "$file_path"; then
+          if [ -s /tmp/delta_apex_classes.txt ]; then
+            while IFS= read -r cls; do
+              fpath=$(find delta/force-app -path "*/classes/${cls}.cls" -print -quit 2>/dev/null || true)
+              if [ -n "$fpath" ] && grep -qi "@isTest" "$fpath"; then
                 TESTS_IN_DELTA="$TESTS_IN_DELTA $cls"
               else
                 PROD_CLASSES="$PROD_CLASSES $cls"
               fi
-            done
-            TESTS_IN_DELTA=$(echo "$TESTS_IN_DELTA" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
-            PROD_CLASSES=$(echo "$PROD_CLASSES" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+            done < /tmp/delta_apex_classes.txt
           fi
 
-          # Build simple mapping JSON
-          RELATED_TESTS=""
+          TESTS_IN_DELTA=$(echo "$TESTS_IN_DELTA" | xargs -n1 | sort -u | xargs || echo "")
+          PROD_CLASSES=$(echo "$PROD_CLASSES" | xargs -n1 | sort -u | xargs || echo "")
+
+          # Create simple JSON mapping artifact
           echo "{" > reports/test-mapping.json
           echo '  "mapping": [' >> reports/test-mapping.json
           SEP=""
-          if [ -n "$PROD_CLASSES" ] && [ -n "$TESTS_IN_DELTA" ]; then
-            for pc in $PROD_CLASSES; do
-              FOUND=""
-              for tc in $TESTS_IN_DELTA; do
-                tf=$(find delta/force-app force-app -path "*/classes/${tc}.cls" 2>/dev/null | head -n1)
-                if [ -n "$tf" ] && grep -qiE "(new[[:space:]]+${pc}\b|${pc}\.[A-Za-z_]|${pc}[[:space:]]*\()" "$tf"; then
-                  FOUND="$FOUND $tc"
-                fi
-              done
-              FOUND=$(echo "$FOUND" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
-              [ -n "$FOUND" ] && RELATED_TESTS="$RELATED_TESTS $FOUND"
-              if [ -n "$FOUND" ]; then
-                JSON_TESTS=$(echo "$FOUND" | xargs -n1 | sed 's/^/"/;s/$/"/' | paste -sd, -)
-              else
-                JSON_TESTS=""
+          for pc in $PROD_CLASSES; do
+            FOUND=""
+            for tc in $TESTS_IN_DELTA; do
+              tf=$(find delta/force-app -path "*/classes/${tc}.cls" -print -quit 2>/dev/null || true)
+              if [ -n "$tf" ] && grep -qiE "(new[[:space:]]+${pc}\b|${pc}\.[A-Za-z_]|${pc}[[:space:]]*\()" "$tf"; then
+                FOUND="$FOUND $tc"
               fi
-              echo "$SEP    {\"apexClass\": \"${pc}\", \"tests\": [${JSON_TESTS}]}" >> reports/test-mapping.json
-              SEP=","
             done
-          fi
+            FOUND=$(echo "$FOUND" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+            if [ -n "$FOUND" ]; then
+              JSON_TESTS=$(echo "$FOUND" | xargs -n1 | sed 's/^/"/;s/$/"/' | paste -sd, -)
+            else
+              JSON_TESTS=""
+            fi
+            echo "$SEP    {\"apexClass\": \"${pc}\", \"tests\": [${JSON_TESTS}]}" >> reports/test-mapping.json
+            SEP=","
+          done
           echo '  ]' >> reports/test-mapping.json
           echo '}' >> reports/test-mapping.json
 
-          RELATED_TESTS=$(echo "$RELATED_TESTS" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+          RELATED_TESTS=$(echo "$TESTS_IN_DELTA $PROD_CLASSES" | xargs -n1 | sort -u | xargs || echo "")
           echo "RELATED_TESTS=${RELATED_TESTS}" >> $GITHUB_ENV
-          echo "✅ Test mapping complete. Tests to run: ${RELATED_TESTS:-none (RunLocalTests fallback)}"
+          echo "APEX_CLASSES=$(cat /tmp/delta_apex_classes.txt 2>/dev/null || true)" >> $GITHUB_ENV
+          echo "✅ Test mapping complete."
 
       - name: Validate with Intelligent Test Selection
         id: validate_deploy
         run: |
           set -euo pipefail
           mkdir -p reports
-          # default report
+          # default stub
           echo '{"result":{"status":"Failed","message":"No deploy run performed"}}' > reports/deploy-report.json
           echo "" > reports/validation-summary.txt
 
@@ -216,7 +210,7 @@ jobs:
                   summary "Mapped-tests deploy validation: Failed (see reports/deploy-report.json). Will retry with RunLocalTests."
                 fi
 
-                # compute overall coverage if available
+                # compute overall coverage (global) if available
                 COVERAGE=0
                 if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
                   COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
@@ -270,21 +264,11 @@ jobs:
             echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
           fi
 
-          # After deploy run: parse delta members into local file for downstream reporting
-          if [ -f delta/package/package.xml ]; then
-            grep '<members>' delta/package/package.xml | sed -E 's/.*<members>([^<]+)<\/members>.*/\1/' | tr '\n' ' ' | xargs -n1 | sort -u > /tmp/delta_members.txt || true
-            echo "Delta members saved to /tmp/delta_members.txt"
-            echo "----"
-            cat /tmp/delta_members.txt || true
-          else
-            echo "No delta/package/package.xml found; reporting will use full coverage info."
-          fi
-
       - name: Display Validation Summary (delta-focused)
         if: always()
         run: |
           set -euo pipefail
-          # defaults
+
           STATUS="Failed"
           COMPONENT_FAIL_COUNT=0
           TEST_FAIL_COUNT=0
@@ -302,67 +286,54 @@ jobs:
             TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
           fi
 
-          # compute delta-aware coverage if possible
-          DELTA_FILE="/tmp/delta_members.txt"
+          # Build a coverage lookup table (name TAB percent) if available
+          if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+            jq -r '.result.details.runTestResult.codeCoverage[]? | "\(.name)\t\(.coveredPercent // "N/A")"' reports/deploy-report.json 2>/dev/null > /tmp/coverage.tsv || true
+          else
+            : > /tmp/coverage.tsv
+          fi
+
+          DELTA_FILE=/tmp/delta_members.txt
           DELTA_PRESENT="false"
           if [ -f "$DELTA_FILE" ] && [ -s "$DELTA_FILE" ]; then
             DELTA_PRESENT="true"
-            # Build coverage TSV of all reported classes
-            if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
-              jq -r '.result.details.runTestResult.codeCoverage[]? | "\(.name)\t\(.coveredPercent // "N/A")"' reports/deploy-report.json 2>/dev/null > /tmp/coverage.tsv || true
-            else
-              > /tmp/coverage.tsv
-            fi
-
-            # iterate delta members: collect numeric, zero, null lists
-            NUMERIC_TOTAL=0
+            : > /tmp/delta_numeric.txt
+            : > /tmp/delta_zero.txt
+            : > /tmp/delta_na.txt
+            NUMERIC_SUM=0
             NUMERIC_COUNT=0
-            NUMERIC_LINES_FILE=/tmp/delta_numeric.txt
-            ZERO_LIST_FILE=/tmp/delta_zero.txt
-            NA_LIST_FILE=/tmp/delta_na.txt
-            : > "$NUMERIC_LINES_FILE"
-            : > "$ZERO_LIST_FILE"
-            : > "$NA_LIST_FILE"
 
             while IFS= read -r m; do
-              # The package.xml member might be a class name, test class, or other component - we only care about Apex classes in coverage
-              # Normalize: look for exact match in coverage.tsv name field
-              line=$(grep -P "^${m}\t" /tmp/coverage.tsv || true)
+              # only consider Apex class members (skip other metadata types)
+              # try to find this class in coverage.tsv
+              line=$(grep -F -- "$m"$'\t' /tmp/coverage.tsv || true)
               if [ -z "$line" ]; then
-                # not present in coverage report -> N/A
-                echo "$m" >> "$NA_LIST_FILE"
+                echo "$m" >> /tmp/delta_na.txt
               else
-                pct=$(echo "$line" | awk -F'\t' '{print $2}')
-                if [ "$pct" = "N/A" ] || [ -z "$pct" ]; then
-                  echo "$m" >> "$NA_LIST_FILE"
+                pct=$(printf "%s" "$line" | cut -f2)
+                if [ -z "$pct" ] || [ "$pct" = "N/A" ]; then
+                  echo "$m" >> /tmp/delta_na.txt
                 else
-                  # try numeric
-                  num=$(echo "$pct" | sed 's/[^0-9.]//g')
-                  if [ -z "$num" ]; then
-                    echo "$m" >> "$NA_LIST_FILE"
-                  else
-                    # round to integer
-                    num_int=$(printf "%.0f" "$num" 2>/dev/null || printf "%d" "$num")
-                    echo "$m:$num_int" >> "$NUMERIC_LINES_FILE"
-                    NUMERIC_TOTAL=$((NUMERIC_TOTAL + num_int))
-                    NUMERIC_COUNT=$((NUMERIC_COUNT + 1))
-                    if [ "$num_int" -eq 0 ]; then
-                      echo "$m" >> "$ZERO_LIST_FILE"
-                    fi
+                  # safe integer conversion using awk (portable)
+                  num_int=$(awk -v v="$pct" 'BEGIN{printf("%d", v+0)}')
+                  echo "${m}:${num_int}" >> /tmp/delta_numeric.txt
+                  NUMERIC_SUM=$((NUMERIC_SUM + num_int))
+                  NUMERIC_COUNT=$((NUMERIC_COUNT + 1))
+                  if [ "$num_int" -eq 0 ]; then
+                    echo "$m" >> /tmp/delta_zero.txt
                   fi
                 fi
               fi
             done < "$DELTA_FILE"
 
-            # compute delta average coverage
             if [ "$NUMERIC_COUNT" -gt 0 ]; then
-              DELTA_AVG=$((NUMERIC_TOTAL / NUMERIC_COUNT))
+              DELTA_AVG=$((NUMERIC_SUM / NUMERIC_COUNT))
             else
               DELTA_AVG=0
             fi
             COVERAGE="$DELTA_AVG"
           else
-            # no delta file => fallback to global average (existing behaviour)
+            # fallback to global average
             if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
               COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
               COVERAGE=${COVERAGE%.*}
@@ -371,7 +342,7 @@ jobs:
             fi
           fi
 
-          # write compact file summary
+          # write short file and job log
           echo "" >> reports/validation-summary.txt
           echo "=== DEPLOY VALIDATION SUMMARY ===" >> reports/validation-summary.txt
           echo "Status: ${STATUS}" >> reports/validation-summary.txt
@@ -380,7 +351,6 @@ jobs:
           echo "Average coverage (delta-aware): ${COVERAGE}%" >> reports/validation-summary.txt
           echo "================================" >> reports/validation-summary.txt
 
-          # job log short summary
           echo ""
           echo "🔎 Validation summary (short):"
           echo "  • Status: ${STATUS}"
@@ -391,36 +361,30 @@ jobs:
           if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ] || [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
             echo "⚠️  Validation issues detected. See reports/deploy-report.json and reports/validation-summary.txt for details."
 
-            # Print concise test failure examples (sanitized). Limit to 10.
+            # Top test failures (sanitized) - no awk RS, portable pipeline
             if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json >/dev/null 2>&1; then
               echo ""
               echo "🧪 Top test failures (sanitized):"
-              jq -r '.result.details.runTestResult.failures[]? |
-                "\(.name) - Method: \(.methodName // "unknown")\n\(.message // "" )" ' reports/deploy-report.json 2>/dev/null \
-                | sed -e "s/<br>/\\n/g" -e "s/<[^>]*>//g" \
-                | awk -v RS= -v ORS="\n\n" 'NR<=10{print}' || true
+              jq -r '.result.details.runTestResult.failures[]? | "\(.name) - Method: \(.methodName // "unknown")\n\(.message // "" )"' reports/deploy-report.json 2>/dev/null \
+                | sed -e 's/<br>/\n/g' -e 's/<[^>]*>//g' | sed -n '1,10p' || true
             fi
 
-            # Component failures but only those relevant to delta members (if delta exists)
-            if [ -f /tmp/delta_members.txt ]; then
+            # Component failures relevant to delta (if delta exists)
+            if [ -s /tmp/delta_members.txt ]; then
               echo ""
               echo "🔧 Component failures relevant to delta (if any):"
+              # build a simple grep list for delta members base names
+              sed -n '1,1000p' /tmp/delta_members.txt | sed 's/\r$//' > /tmp/_delta_names.tmp || true
+              # check componentFailures and print only those that match
               jq -c '.result.details.componentFailures[]?' reports/deploy-report.json 2>/dev/null | while read -r cf; do
                 fname=$(echo "$cf" | jq -r '.fileName // .name // empty')
-                # derive base name (e.g., classes/MyClass.cls -> MyClass)
-                base=$(basename "$fname" | sed 's/\.cls$//;s/\.trigger$//;s/\.flow.*$//')
-                if grep -Fxq "$base" /tmp/delta_members.txt 2>/dev/null; then
+                base=$(basename "$fname" | sed -E 's/(\.cls|\.trigger|\.flow.*)$//')
+                if grep -Fxq "$base" /tmp/_delta_names.tmp 2>/dev/null; then
                   echo "  • $fname: $(echo "$cf" | jq -r '.problem // "Unknown")"
                 fi
-              done
-
-              # If none printed, say none
-              if ! (jq -r '.result.details.componentFailures[]? | .fileName // .name' reports/deploy-report.json 2>/dev/null | sed -n '1,1p' | xargs -I{} bash -c 'base=$(basename "{}" | sed "s/\.cls$//;s/\.trigger$//"); grep -Fxq "$base" /tmp/delta_members.txt 2>/dev/null && echo "found" || true') >/dev/null 2>&1; then
-                # The check above is noisy; simplify: print nothing here if no delta-matching component failures
-                :
-              fi
+              done || true
             else
-              # No delta file - print component failures globally (concise)
+              # global concise component failures
               if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ]; then
                 echo ""
                 echo "🔧 Component failures:"
@@ -428,41 +392,36 @@ jobs:
               fi
             fi
 
-            # Coverage breakdown (delta-focused)
+            # Delta-focused coverage breakdown
             if [ "$DELTA_PRESENT" = "true" ]; then
               echo ""
               echo "📊 **Coverage Achieved for delta (average):**"
               echo "   • ${COVERAGE}%"
               echo ""
               echo "📋 **Coverage breakdown (delta classes only):**"
-
-              if [ -f /tmp/delta_numeric.txt ] && [ -s /tmp/delta_numeric.txt ]; then
+              if [ -s /tmp/delta_numeric.txt ]; then
                 echo ""
                 echo "  • Classes with numeric coverage:"
-                sed -n '1,50p' /tmp/delta_numeric.txt | sed 's/:/: /' | sed 's/^/    - /'
+                sed -n '1,200p' /tmp/delta_numeric.txt | sed 's/:/: /' | sed 's/^/    - /'
               fi
-
               if [ -s /tmp/delta_zero.txt ]; then
                 echo ""
                 echo "  • Classes reporting 0% coverage (need tests):"
                 sed -n '1,200p' /tmp/delta_zero.txt | sed 's/^/    - /'
               fi
-
               if [ -s /tmp/delta_na.txt ]; then
                 echo ""
                 echo "  • Classes reporting N/A for coverage (coverage not available):"
                 sed -n '1,200p' /tmp/delta_na.txt | sed 's/^/    - /'
               fi
-
               echo ""
               echo "  • Classes below overall threshold (${COVERAGE_THRESHOLD}%):"
-              # show delta numeric lines below threshold
-              if [ -f /tmp/delta_numeric.txt ]; then
+              if [ -s /tmp/delta_numeric.txt ]; then
                 awk -F: -v thr="${COVERAGE_THRESHOLD}" '{ if ($2+0 < thr) printf "    - %s: %s%%\n", $1, $2 }' /tmp/delta_numeric.txt | sed -n '1,200p' || true
               fi
 
             else
-              # fallback global coverage info (previous behaviour)
+              # fallback: show global average if available
               if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
                 echo ""
                 echo "📊 **Coverage Achieved (average, global):**"
@@ -488,7 +447,6 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          # Determine status and counts
           if [ -f reports/deploy-report.json ]; then
             STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
           else
@@ -505,11 +463,10 @@ jobs:
             TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
           fi
 
-          # choose coverage metric: delta-aware if delta file exists, else global
+          # choose coverage metric: delta-aware if present
           COVERAGE=0
-          if [ -f /tmp/delta_members.txt ] && [ -s /tmp/delta_members.txt ]; then
-            if [ -f /tmp/delta_numeric.txt ] && [ -s /tmp/delta_numeric.txt ]; then
-              # compute average of numeric delta coverage values
+          if [ -s /tmp/delta_members.txt ]; then
+            if [ -s /tmp/delta_numeric.txt ]; then
               SUM=0; COUNT=0
               while IFS=: read -r name pct; do
                 SUM=$((SUM + pct))
@@ -524,7 +481,6 @@ jobs:
               COVERAGE=0
             fi
           else
-            # fallback global average
             if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
               COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
               COVERAGE=${COVERAGE%.*}
