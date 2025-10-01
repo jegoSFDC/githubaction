@@ -158,14 +158,27 @@ main() {
         summary "📄 Metadata-only deployment (LWC/CustomObject/Flow) - no test execution required"
         
         echo ""
-        echo "📋 Metadata Components to Deploy:"
-        find delta/force-app -type f 2>/dev/null | sed 's|^delta/force-app/||' | head -20 || echo "  (no files found)"
+        echo "📋 DEPLOYMENT VALIDATION DETAILS"
+        echo "================================="
+        echo ""
+        echo "📦 Package Contents:"
+        cat delta/package/package.xml | grep -E "<members>|<name>" | sed 's/^/  /'
         echo ""
         
-        echo "🔄 Executing deployment validation without test execution..."
-        echo "  • Target: delta/force-app"
-        echo "  • Mode: Dry-run validation"
-        echo "  • Test Level: NoTestRun"
+        echo "📁 Files to Deploy:"
+        find delta/force-app -type f 2>/dev/null | sed 's|^delta/force-app/|  • |' | head -20 || echo "  (no files found)"
+        local total_files
+        total_files=$(find delta/force-app -type f 2>/dev/null | wc -l)
+        echo ""
+        echo "  Total files: $total_files"
+        echo ""
+        
+        echo "⚙️  EXECUTING DEPLOYMENT VALIDATION"
+        echo "===================================="
+        echo "  • Validation Mode: Dry-run (check-only)"
+        echo "  • Test Level: NoTestRun (metadata-only deployment)"
+        echo "  • Target Org: sandbox"
+        echo "  • Source Directory: delta/force-app"
         echo ""
         
         execute_validation "NoTestRun"

@@ -55,31 +55,54 @@ run_code_analyzer() {
   fi
 
   if [ "$has_components" = true ]; then
-    echo "⚙️  Executing Salesforce Code Analyzer on $target..."
+    echo ""
+    echo "⚙️  EXECUTING CODE ANALYZER"
+    echo "=========================="
+    echo "  • Target: $target"
+    echo "  • Component Type: $component_type"
+    echo "  • Severity Threshold: $SEVERITY_THRESHOLD"
+    echo "  • Output: $output_file"
+    echo ""
+    
+    # Create reports directory
+    mkdir -p reports
     
     if sf code-analyzer analyze \
       --target "$target" \
       --view detail \
       --output-file "$output_file" \
-      --severity-threshold "${SEVERITY_THRESHOLD}"; then
+      --severity-threshold "${SEVERITY_THRESHOLD}" 2>&1 | tee /tmp/code_analyzer_${component_type}.log; then
 
+      echo ""
       echo "✅ $component_type analysis completed successfully"
 
       # Display analysis results summary
       if [ -f "$output_file" ]; then
         VIOLATION_COUNT=$(jq '.violations | length' "$output_file" 2>/dev/null || echo "0")
-        echo "📊 $component_type violations found: $VIOLATION_COUNT"
+        echo ""
+        echo "📊 ANALYSIS RESULTS"
+        echo "==================="
+        echo "  • Total violations: $VIOLATION_COUNT"
 
         if [ "$VIOLATION_COUNT" -gt 0 ]; then
           echo ""
-          echo "🔍 All violations:"
-          jq -r '.violations[]? | "  • [\(.severity)] \(.ruleName // "Unknown"): \(.message // "No message")\n    File: \(.location // "Unknown location")"' "$output_file" 2>/dev/null
+          echo "🔍 VIOLATIONS DETECTED:"
+          echo "======================="
+          jq -r '.violations[]? | "  ❌ [\(.severity // "N/A")] \(.ruleName // "Unknown")\n     File: \(.location // "Unknown")\n     Message: \(.message // "No message")\n"' "$output_file" 2>/dev/null | head -50
+          echo ""
+          echo "📄 Full report saved to: $output_file"
+        else
+          echo "  ✅ No violations found - code meets quality standards!"
         fi
       fi
 
     else
-      echo "⚠️  $component_type analysis completed with warnings or errors"
+      echo ""
+      echo "⚠️  $component_type analysis completed with warnings"
+      echo "📄 Analyzer output:"
+      cat /tmp/code_analyzer_${component_type}.log 2>/dev/null || echo "  (no output available)"
       # Still create empty report file
+      mkdir -p reports
       echo '{"violations":[]}' > "$output_file"
     fi
 
