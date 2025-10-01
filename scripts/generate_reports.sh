@@ -234,9 +234,9 @@ main() {
     echo "✅ Static Code Analysis: Completed"
     if [ "$COVERAGE" = "N/A" ]; then
       if [ "$STATUS" = "Succeeded" ]; then
-        echo "⏭️  Intelligent Test Execution: Skipped (no Apex code)"
-        echo "✅ Deployment Validation: Completed (metadata-only)"
-        echo "⏭️  Coverage Filtering: Skipped (no Apex code)"
+        echo "⏭️  Intelligent Test Execution: Skipped (no Apex code to test)"
+        echo "✅ Deployment Validation: Completed (LWC/metadata-only, NoTestRun)"
+        echo "⏭️  Coverage Filtering: Skipped (no Apex code to analyze)"
       else
         echo "⏭️  Intelligent Test Execution: Skipped (metadata-only)"
         echo "⏭️  Deployment Validation: Skipped (no deployment package)"
@@ -244,7 +244,7 @@ main() {
       fi
     else
       echo "✅ Intelligent Test Execution: Completed"
-      echo "✅ Deployment Validation: Completed"
+      echo "✅ Deployment Validation: Completed (with Apex tests)"
       echo "✅ Coverage Filtering: Completed"
     fi
     echo "✅ Validation Reporting: Completed"
@@ -264,12 +264,18 @@ main() {
     echo "✅ Delta Package Generation: Completed"
     echo "✅ Static Code Analysis: Completed"
     if [ "$COVERAGE" = "N/A" ]; then
-      echo "⏭️  Intelligent Test Execution: Skipped (metadata-only)"
-      echo "⏭️  Deployment Validation: Skipped (no deployment package)"
-      echo "⏭️  Coverage Filtering: Skipped (metadata-only)"
+      if [ "$STATUS" = "Succeeded" ]; then
+        echo "⏭️  Intelligent Test Execution: Skipped (no Apex code to test)"
+        echo "✅ Deployment Validation: Completed (LWC/metadata-only, NoTestRun)"
+        echo "⏭️  Coverage Filtering: Skipped (no Apex code to analyze)"
+      else
+        echo "⏭️  Intelligent Test Execution: Skipped (metadata-only)"
+        echo "⏭️  Deployment Validation: Skipped (no deployment package)"
+        echo "⏭️  Coverage Filtering: Skipped (metadata-only)"
+      fi
     else
       echo "✅ Intelligent Test Execution: Completed"
-      echo "✅ Deployment Validation: Completed"
+      echo "✅ Deployment Validation: Completed (with Apex tests)"
       echo "✅ Coverage Filtering: Completed"
     fi
     echo "❌ Validation Reporting: FAILED"

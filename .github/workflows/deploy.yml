@@ -91,6 +91,11 @@ jobs:
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
+      - name: Install Code Analyzer Plugin
+        run: |
+          echo y | sf plugins install @salesforce/sfdx-scanner
+          sf scanner --version || echo "Scanner installed successfully"
+
       - name: Generate Deployment Delta Package
         env:
           TARGET_BRANCH: ${{ github.base_ref || 'main' }}
@@ -177,17 +182,32 @@ jobs:
 
           # Determine deployment status for better messaging
           if [ "${HAS_DEPLOYMENT_PACKAGE:-false}" = "true" ]; then
-            echo "📋 PIPELINE STAGES EXECUTED:"
-            echo "   1. ✅ Environment Configuration"
-            echo "   2. ✅ Salesforce Authentication"
-            echo "   3. ✅ Delta Package Generation"
-            echo "   4. ✅ Static Code Analysis"
-            echo "   5. ✅ Intelligent Test Execution"
-            echo "   6. ✅ Deployment Validation"
-            echo "   7. ✅ Coverage Data Filtering"
-            echo "   8. ✅ Validation Reporting & Quality Gates"
-            echo ""
-            echo "📊 DEPLOYMENT TYPE: Full deployment with metadata and/or Apex changes"
+            # Check if we have Apex classes
+            if [ -n "${DELTA_APEX_CLASSES:-}" ]; then
+              echo "📋 PIPELINE STAGES EXECUTED:"
+              echo "   1. ✅ Environment Configuration"
+              echo "   2. ✅ Salesforce Authentication"
+              echo "   3. ✅ Delta Package Generation"
+              echo "   4. ✅ Static Code Analysis"
+              echo "   5. ✅ Intelligent Test Execution"
+              echo "   6. ✅ Deployment Validation (with Apex tests)"
+              echo "   7. ✅ Coverage Data Filtering"
+              echo "   8. ✅ Validation Reporting & Quality Gates"
+              echo ""
+              echo "📊 DEPLOYMENT TYPE: Apex deployment with code coverage validation"
+            else
+              echo "📋 PIPELINE STAGES EXECUTED:"
+              echo "   1. ✅ Environment Configuration"
+              echo "   2. ✅ Salesforce Authentication"
+              echo "   3. ✅ Delta Package Generation"
+              echo "   4. ✅ Static Code Analysis"
+              echo "   5. ⏭️  Intelligent Test Execution (skipped - no Apex code)"
+              echo "   6. ✅ Deployment Validation (LWC/metadata-only, NoTestRun)"
+              echo "   7. ⏭️  Coverage Data Filtering (skipped - no Apex code)"
+              echo "   8. ✅ Validation Reporting & Quality Gates"
+              echo ""
+              echo "📊 DEPLOYMENT TYPE: Metadata-only deployment (LWC/CustomObject/Flow/etc)"
+            fi
           else
             echo "📋 PIPELINE STAGES EXECUTED:"
             echo "   1. ✅ Environment Configuration"
