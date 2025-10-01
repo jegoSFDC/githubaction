@@ -1,0 +1,16 @@
+.sample-component {
+    padding: 1rem;
+}
+
+.sample-component .message {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #0176d3;
+    margin-bottom: 1rem;
+}
+
+.sample-component .counter {
+    font-size: 1rem;
+    color: #706e6b;
+    margin-top: 1rem;
+}
