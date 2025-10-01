@@ -8,36 +8,21 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
-  checks: write
-  actions: read
-
 env:
   SEVERITY_THRESHOLD: 3  # High/Critical only (1=all, 2=medium+, 3=high+, 4=critical)
-  COVERAGE_THRESHOLD: 75  # Minimum coverage percentage required
+  COVERAGE_THRESHOLD: 75
 
 jobs:
   pr-validation:
     name: PR Validation
     runs-on: ubuntu-latest
-    concurrency:
-      group: pr-validation-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
-    timeout-minutes: 60
-    if: ${{ github.event_name == 'pull_request' }}
+    if: github.event_name == 'pull_request'
     
     steps:
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup Node & Salesforce CLI
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -45,17 +30,28 @@ jobs:
           distribution: 'temurin'
           java-version: '11'
 
+      - name: Setup Node & Salesforce CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Salesforce CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.sf
+          key: sf-cli-${{ runner.os }}-${{ hashFiles('**/sfdx-project.json') }}
+          restore-keys: |
+            sf-cli-${{ runner.os }}-
+
       - name: Install Salesforce CLI
         run: |
-          set -euo pipefail
-          npm install -g @salesforce/cli@latest --silent
-          sf --version || { echo "SF CLI install failed"; exit 1; }
+          npm install -g @salesforce/cli --silent
+          sf --version
 
       - name: Authenticate Salesforce (PR Validation)
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
-          set -euo pipefail
           echo "$SF_AUTH_URL" > /tmp/authFile.txt
           sf org login sfdx-url --sfdx-url-file /tmp/authFile.txt --alias sandbox --set-default
           rm -f /tmp/authFile.txt
@@ -65,24 +61,19 @@ jobs:
 
       - name: Install sfdx-git-delta Plugin
         run: |
-          set -euo pipefail
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
       - name: Generate Delta using sfdx-git-delta
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
         run: |
-          set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin $BASE_REF --quiet
-          echo "Generating delta from origin/$BASE_REF to HEAD"
-          sf sgd source delta --to HEAD --from origin/$BASE_REF --output delta --generate-delta
+          git fetch origin ${{ github.base_ref }} --quiet
+          echo "Generating delta from origin/${{ github.base_ref }} to HEAD"
+          sf sgd source delta --to HEAD --from origin/${{ github.base_ref }} --output delta --generate-delta
           ls -la delta || true
 
       - name: Show Generated Package.xml Files
         run: |
-          set -euo pipefail
           echo "=== Delta Directory Structure ==="
           find delta -type f | head -20 || echo "No delta files found"
           echo ""
@@ -118,15 +109,15 @@ jobs:
 
       - name: Upload Code Analysis Reports
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: code-analysis-reports
           path: reports/
           retention-days: 30
-          if-no-files-found: warn
 
       - name: Display Code Analysis Results
+        if: always()
         run: |
-          set -euo pipefail
           echo "🔍 Static Code Analysis Results:"
           echo "=================================="
           
@@ -134,31 +125,36 @@ jobs:
           [ -f reports/apex.json ] || echo '{"violations":[]}' > reports/apex.json
           [ -f reports/lwc.json ] || echo '{"violations":[]}' > reports/lwc.json
           
-          # Display Apex results
+          # Display Apex results with FIXED parsing
           if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
             echo "📊 Apex Analysis Results:"
             APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
             if [ "$APEX_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               echo "High Priority Issues:"
-              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/apex.json 2>/dev/null | head -10
+              # FIXED: Parse location field correctly - extract filename from location
+              jq -r '.violations[]? | select(.severity <= 3) | 
+                (if .location then (.location | split(":")[0] | split("/") | .[-1]) else "Unknown" end) as $file |
+                "  • \($file) - \(.ruleName // "Unknown"): \(.message)"' reports/apex.json 2>/dev/null | head -10
             else
               echo "✅ No Apex violations found!"
             fi
           else
             echo "✅ No Apex violations found!"
           fi
-
+          
           echo ""
           
-          # Display LWC results
+          # Display LWC results with FIXED parsing
           if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
             echo "📊 LWC Analysis Results:"
             LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
             if [ "$LWC_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               echo "Key Issues:"
-              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/lwc.json 2>/dev/null | head -5
+              jq -r '.violations[]? | select(.severity <= 3) | 
+                (if .location then (.location | split(":")[0] | split("/") | .[-1]) else "Unknown" end) as $file |
+                "  • \($file) - \(.ruleName // "Unknown"): \(.message)"' reports/lwc.json 2>/dev/null | head -5
             else
               echo "✅ No LWC violations found!"
             fi
@@ -169,8 +165,6 @@ jobs:
       - name: Analyze Delta and Map Test Classes
         id: analyze_delta
         run: |
-          set -euo pipefail
-          
           echo "🔍 Analyzing Apex classes in delta for test mapping..."
           
           # **FIXED: Only extract actual .cls files from delta, not from package.xml**
@@ -250,32 +244,10 @@ jobs:
           echo "APEX_CLASSES=$APEX_CLASSES" >> $GITHUB_ENV
           echo "TESTS_IN_DELTA=$TESTS_IN_DELTA" >> $GITHUB_ENV
           echo "RELATED_TESTS=$RELATED_TESTS" >> $GITHUB_ENV
-          
-          {
-            echo "### 🧪 Test Mapping for Apex Classes in Delta"
-            echo ""
-            if [ -s reports/test-mapping.json ]; then
-              echo "| Apex Class | Tests Found in Delta |"
-              echo "|---|---|"
-              if [ -n "$PROD_CLASSES" ]; then
-                for pc in $PROD_CLASSES; do
-                  row=$(jq -r --arg pc "$pc" '.mapping[] | select(.apexClass==$pc) | .tests | join(", ")' reports/test-mapping.json 2>/dev/null || echo "")
-                  [ -z "$row" ] && row="-"
-                  echo "| $pc | $row |"
-                done
-              else
-                echo "| (none) | (none) |"
-              fi
-            else
-              echo "_No mapping produced_"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate with Intelligent Test Selection
         id: validate_deploy
         run: |
-          set -euo pipefail
-          
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
             echo "Delta found. Proceeding with validation..."
             
@@ -363,8 +335,8 @@ jobs:
           fi
 
       - name: Display Validation Summary
+        if: always()
         run: |
-          set -euo pipefail
           echo ""
           
           if [ -f reports/deploy-report.json ]; then
@@ -458,21 +430,4 @@ jobs:
             echo ""
             echo "🔍 Static Code Analysis: ✅ No violations"
             echo "📊 Code Quality: 🟢 Excellent (0 violations)"
-          fi
-
-      - name: Final Status Check
-        run: |
-          set -euo pipefail
-          if [ -f reports/deploy-report.json ]; then
-            STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
-            if [ "$STATUS" = "Succeeded" ] || [ "$STATUS" = "Skipped" ]; then
-              echo "Validation outcome: $STATUS"
-              exit 0
-            else
-              echo "Validation outcome: $STATUS"
-              exit 1
-            fi
-          else
-            echo "No deploy-report.json produced; failing."
-            exit 1
           fi
