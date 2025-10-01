@@ -32,10 +32,29 @@ mkdir -p delta reports
 echo "🔧 Configuring git workspace safety..."
 git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-# Fetch target branch for delta comparison
-TARGET_BRANCH="${TARGET_BRANCH:-main}"
+# Resolve target branch for delta comparison
+RAW_TARGET_BRANCH="${TARGET_BRANCH:-}"
+
+# Normalize empty or explicit "null" values coming from GitHub context
+if [ -z "$RAW_TARGET_BRANCH" ] || [ "$RAW_TARGET_BRANCH" = "null" ]; then
+  if [ -n "${GITHUB_BASE_REF:-}" ] && [ "${GITHUB_BASE_REF}" != "null" ]; then
+    RAW_TARGET_BRANCH="$GITHUB_BASE_REF"
+  elif [ -n "${GITHUB_REF_NAME:-}" ] && [ "${GITHUB_REF_NAME}" != "null" ]; then
+    RAW_TARGET_BRANCH="$GITHUB_REF_NAME"
+  else
+    RAW_TARGET_BRANCH="main"
+  fi
+fi
+
+TARGET_BRANCH="$RAW_TARGET_BRANCH"
 echo "📥 Fetching target branch: $TARGET_BRANCH"
-git fetch origin "$TARGET_BRANCH" --quiet
+
+if ! git fetch origin "$TARGET_BRANCH" --quiet; then
+  echo "⚠️  Unable to fetch origin/$TARGET_BRANCH - falling back to origin/main"
+  TARGET_BRANCH_FALLBACK="main"
+  git fetch origin "$TARGET_BRANCH_FALLBACK" --quiet
+  TARGET_BRANCH="$TARGET_BRANCH_FALLBACK"
+fi
 
 echo "📊 Generating delta from origin/$TARGET_BRANCH to HEAD"
 
@@ -66,9 +85,38 @@ echo "📁 Total files in delta: $DELTA_COUNT"
 
 if [ -f delta/package/package.xml ]; then
   # Check if package.xml has actual content (not just the basic structure)
-  PACKAGE_MEMBERS=$(grep -o '<members>.*</members>' delta/package/package.xml | grep -v '<members></members>' | wc -l)
+  PACKAGE_MEMBERS=$(python3 - <<'PY'
+from pathlib import Path
+import xml.etree.ElementTree as ET
 
-  if [ "$PACKAGE_MEMBERS" -gt 0 ]; then
+package_path = Path("delta/package/package.xml")
+count = 0
+if package_path.exists():
+    try:
+        tree = ET.parse(package_path)
+        ns = {"md": "http://soap.sforce.com/2006/04/metadata"}
+        root = tree.getroot()
+        # Count all non-empty <members> entries within <types>
+        for types in root.findall('md:types', ns):
+            name = types.findtext('md:name', default='', namespaces=ns)
+            if name in {"ApexClass", "ApexTrigger", "LightningComponentBundle",
+                        "ApexPage", "ApexComponent", "StaticResource",
+                        "AuraDefinitionBundle", "CustomObject", "CustomField"}:
+                for members in types.findall('md:members', ns):
+                    if (members.text or '').strip():
+                        count += 1
+            else:
+                for members in types.findall('md:members', ns):
+                    if (members.text or '').strip():
+                        count += 1
+    except ET.ParseError:
+        # Fallback: treat as empty package if parsing fails
+        count = 0
+print(count)
+PY
+)
+
+  if [ "${PACKAGE_MEMBERS:-0}" -gt 0 ]; then
     echo ""
     echo "📦 Package.xml Preview (first 20 lines):"
     sed -n '1,20p' delta/package/package.xml

@@ -136,8 +136,31 @@ main() {
   if [ -f delta/package/package.xml ]; then
     echo "📦 Extracting Apex classes from delta package.xml..."
 
-    # Use xpath-like parsing to extract class names from package.xml
-    DELTA_APEX_CLASSES=$(grep -oP '(?<=<members>).*?(?=</members>)' delta/package/package.xml | grep -v '^$' | tr '\n' ' ' | sed 's/ *$//')
+    DELTA_APEX_CLASSES=$(python3 - <<'PY'
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+package_path = Path("delta/package/package.xml")
+classes = []
+if package_path.exists():
+    try:
+        tree = ET.parse(package_path)
+        ns = {"md": "http://soap.sforce.com/2006/04/metadata"}
+        root = tree.getroot()
+        for types in root.findall('md:types', ns):
+            name = types.findtext('md:name', default='', namespaces=ns)
+            if name == "ApexClass":
+                for members in types.findall('md:members', ns):
+                    value = (members.text or '').strip()
+                    if value:
+                        classes.append(value)
+    except ET.ParseError:
+        pass
+
+print(' '.join(classes))
+PY
+)
+
     echo "📋 Apex classes in delta: ${DELTA_APEX_CLASSES:-none}"
   else
     echo "⚠️  No delta/package/package.xml found"

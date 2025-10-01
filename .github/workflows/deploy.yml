@@ -93,7 +93,7 @@ jobs:
 
       - name: Generate Deployment Delta Package
         env:
-          TARGET_BRANCH: ${{ github.base_ref }}
+          TARGET_BRANCH: ${{ github.base_ref || 'main' }}
         run: ./scripts/generate_delta.sh
 
       # ---------------------------------------------------------------------------
