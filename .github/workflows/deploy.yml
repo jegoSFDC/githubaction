@@ -154,9 +154,10 @@ jobs:
         run: |
           echo "🔍 Analyzing Apex classes in delta for test mapping..."
 
-          # Extract Apex classes from delta package.xml
+          # Extract Apex classes from delta package.xml using grep and sed
           if [ -f delta/package/package.xml ]; then
-            DELTA_APEX_CLASSES=$(xmllint --xpath "//members[../name='ApexClass']/text()" delta/package/package.xml 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+            # Extract class names from package.xml - look for lines containing <members> within <name>ApexClass</name> blocks
+            DELTA_APEX_CLASSES=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml | grep '<members>' | sed 's/.*<members>\(.*\)<\/members>.*/\1/' | tr '\n' ' ' | sed 's/ *$//')
             echo "📋 Apex classes in delta package.xml: ${DELTA_APEX_CLASSES:-none}"
           else
             echo "⚠️ No delta/package/package.xml found"
@@ -353,10 +354,14 @@ jobs:
           
           # Create a filtered version of the deploy report that only includes coverage for delta classes
           jq --arg delta_classes "$DELTA_APEX_CLASSES" '
-            .result.details.runTestResult.codeCoverage = [
-              .result.details.runTestResult.codeCoverage[]? | 
-              select(.name as $name | ($delta_classes | split(" ") | index($name)))
-            ]
+            if .result.details.runTestResult.codeCoverage then
+              .result.details.runTestResult.codeCoverage = [
+                .result.details.runTestResult.codeCoverage[]? | 
+                select(.name as $name | ($delta_classes | split(" ") | index($name)))
+              ]
+            else
+              .
+            end
           ' reports/deploy-report.json > reports/deploy-report-filtered.json 2>/dev/null || echo "Failed to filter coverage data"
           
           # If filtering succeeded, replace the original report
