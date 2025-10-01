@@ -156,40 +156,24 @@ jobs:
       - name: Identify Apex Test Classes
         run: ./scripts/map_tests.sh
 
-      - name: Execute Deployment Validation
+      # ---------------------------------------------------------------------------
+      # STAGE 6: DRY-RUN VALIDATION & QUALITY GATES
+      # ---------------------------------------------------------------------------
+      # Execute check-only deployment validation with test execution and enforce
+      # quality gates including coverage thresholds and test success criteria
+      # ---------------------------------------------------------------------------
+
+      - name: Execute Dry-Run Validation with Quality Gates
         run: ./scripts/validate_deployment.sh
 
-      - name: Filter Coverage for Delta Classes
+      - name: Analyze Code Coverage for Delta Classes
         if: always()
         run: ./scripts/filter_coverage.sh
 
-      # ---------------------------------------------------------------------------
-      # STAGE 6: VALIDATION REPORTING AND QUALITY GATES
-      # ---------------------------------------------------------------------------
-      # Generate comprehensive reports and validate against quality standards
-      # ---------------------------------------------------------------------------
-
-      - name: Generate Validation Reports and Summaries
-        run: ./scripts/generate_reports.sh
-
-      - name: Archive Validation Artifacts
+      - name: Archive Validation Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: deployment-validation-reports
           path: reports/
           retention-days: 30
-
-      # ---------------------------------------------------------------------------
-      # COMPREHENSIVE QUALITY GATE ENFORCEMENT
-      # ---------------------------------------------------------------------------
-      # Validates deployment against organizational quality standards including:
-      # - Component deployment success
-      # - Test execution results and code coverage thresholds
-      # - Security and quality violation limits
-      # Determines final pipeline success/failure status
-      # ---------------------------------------------------------------------------
-
-      - name: Enforce Quality Gates and Generate Final Report
-        if: always()
-        run: ./scripts/generate_reports.sh

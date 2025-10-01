@@ -1,79 +1,112 @@
 #!/bin/bash
 # ==============================================================================
-# Coverage Data Filtering Script
+# Code Coverage Analysis for Delta Classes
 # ==============================================================================
-# Filters deployment validation coverage data to include only Apex classes
-# that are part of the current delta package, providing focused coverage metrics.
-#
-# Purpose:
-#   - Reduce noise from unrelated classes in coverage reports
-#   - Focus on coverage metrics for classes being deployed
-#   - Enable accurate coverage threshold validation for changed components
-#
-# Algorithm:
-#   1. Validate deploy report contains coverage data
-#   2. Extract delta class names for filtering
-#   3. Filter coverage data to delta classes only
-#   4. Update deploy report with filtered results
-#
-# Input:
-#   - reports/deploy-report.json: Raw deployment report with full coverage
-#   - DELTA_APEX_CLASSES: Space-separated list of delta class names
+# Analyzes and displays code coverage for Apex classes in the delta package.
+# Shows individual class coverage percentages to help identify testing gaps.
 #
 # Output:
-#   - reports/deploy-report.json: Updated with filtered coverage data
+#   - Coverage percentage for each Apex class in delta
+#   - Overall coverage summary
+#   - Filtered coverage report
 # ==============================================================================
 
 set -euo pipefail
 
 echo ""
-echo "🚀 STAGE 5C: COVERAGE DATA FILTERING"
-echo "=================================="
-echo "🔍 Filtering coverage data for delta classes only..."
+echo "🚀 STAGE 5C: CODE COVERAGE ANALYSIS"
+echo "==================================="
 
-# Validate prerequisites
-echo "🔍 Validating prerequisites..."
+# Check if we have a deploy report
 if [ ! -f reports/deploy-report.json ]; then
-  echo "ℹ️  No deploy report found - this is expected for metadata-only deployments"
-  echo "📄 Creating placeholder coverage report for metadata-only deployment..."
-  echo '{"result":{"status":"Skipped","message":"No Apex deployment - coverage filtering not applicable"}}' > reports/deploy-report.json
+  echo "ℹ️  No deployment validation ran - skipping coverage analysis"
+  echo ""
+  echo "✅ STAGE 5C COMPLETED: Coverage analysis skipped"
+  echo "============================================"
   exit 0
 fi
 
+# Check if we have delta classes
 if [ -z "${DELTA_APEX_CLASSES:-}" ]; then
-  echo "ℹ️  No delta classes specified - skipping coverage filtering"
+  echo "ℹ️  No Apex classes in delta - skipping coverage analysis"
+  echo ""
+  echo "✅ STAGE 5C COMPLETED: Coverage analysis skipped"
+  echo "============================================"
   exit 0
 fi
 
-echo "📋 Delta classes for coverage filtering: $DELTA_APEX_CLASSES"
+echo "📋 Analyzing coverage for delta classes..."
+echo ""
 
-# Create filtered coverage report using jq
-echo "⚙️  Processing coverage data with jq filtering..."
-if jq --arg delta_classes "$DELTA_APEX_CLASSES" '
+# Check if coverage data exists
+if ! jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+  echo "ℹ️  No coverage data available (metadata-only or tests failed)"
+  echo ""
+  echo "📊 Delta Classes:"
+  for cls in $DELTA_APEX_CLASSES; do
+    echo "  • $cls: No coverage data"
+  done
+  echo ""
+  echo "✅ STAGE 5C COMPLETED: Coverage analysis finished"
+  echo "============================================="
+  exit 0
+fi
+
+# Display coverage for each delta class
+echo "📊 Coverage by Class:"
+echo "===================="
+
+TOTAL_COVERAGE=0
+CLASS_COUNT=0
+
+for cls in $DELTA_APEX_CLASSES; do
+  # Get coverage for this specific class
+  COVERAGE=$(jq -r --arg cls "$cls" '.result.details.runTestResult.codeCoverage[]? | select(.name == $cls) | .coveredPercent // "N/A"' reports/deploy-report.json 2>/dev/null || echo "N/A")
+  
+  if [ "$COVERAGE" = "N/A" ] || [ -z "$COVERAGE" ]; then
+    echo "  • $cls: N/A (not covered or not executable)"
+  else
+    echo "  • $cls: ${COVERAGE}%"
+    TOTAL_COVERAGE=$((TOTAL_COVERAGE + ${COVERAGE%.*}))
+    CLASS_COUNT=$((CLASS_COUNT + 1))
+  fi
+done
+
+echo ""
+if [ $CLASS_COUNT -gt 0 ]; then
+  AVG_COVERAGE=$((TOTAL_COVERAGE / CLASS_COUNT))
+  echo "📈 Average Coverage: ${AVG_COVERAGE}%"
+  
+  if [ $AVG_COVERAGE -lt 75 ]; then
+    echo "⚠️  Coverage below 75% threshold"
+  else
+    echo "✅ Coverage meets 75% threshold"
+  fi
+else
+  echo "ℹ️  No executable Apex classes with coverage data"
+fi
+
+# Filter the coverage report to only include delta classes
+echo ""
+echo "🔧 Filtering coverage report for delta classes..."
+
+jq --arg delta_classes "$DELTA_APEX_CLASSES" '
   if .result.details.runTestResult.codeCoverage then
     .result.details.runTestResult.codeCoverage = [
-      .result.details.runTestResult.codeCoverage[]? |
+      .result.details.runTestResult.codeCoverage[]? | 
       select(.name as $name | ($delta_classes | split(" ") | index($name)))
     ]
   else
     .
   end
-' reports/deploy-report.json > reports/deploy-report-filtered.json 2>/dev/null; then
+' reports/deploy-report.json > reports/deploy-report-filtered.json 2>/dev/null
 
-  # Replace original report with filtered version
-  echo "📄 Replacing original report with filtered version..."
+# Replace original with filtered version
+if [ -f reports/deploy-report-filtered.json ]; then
   mv reports/deploy-report-filtered.json reports/deploy-report.json
-  echo "✅ Coverage data successfully filtered for delta classes"
-
-else
-  echo "⚠️  Coverage filtering failed - retaining original report"
-  exit 1
+  echo "✅ Coverage report filtered to delta scope only"
 fi
 
-echo "📊 Filtered coverage report contains:"
-echo "  • $(jq '.result.details.runTestResult.codeCoverage | length' reports/deploy-report.json 2>/dev/null || echo '0') classes"
-echo "  • Coverage limited to delta package scope"
-
 echo ""
-echo "✅ STAGE 5C COMPLETED: Coverage filtering finished"
-echo "============================================="
+echo "✅ STAGE 5C COMPLETED: Coverage analysis finished"
+echo "=============================================="

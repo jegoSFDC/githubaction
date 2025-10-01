@@ -1,25 +1,28 @@
 #!/bin/bash
 # ==============================================================================
-# Deployment Validation Script
+# Deployment Dry-Run Validation
 # ==============================================================================
-# Orchestrates Salesforce deployment validation with intelligent test selection
-# and fallback strategies to ensure deployment quality.
+# Executes a dry-run (check-only) deployment validation to Salesforce sandbox.
+# Tests the deployment without actually deploying to ensure quality.
 #
-# Test Execution Strategy:
-#   1. Attempt RunSpecifiedTests with mapped test classes
-#   2. Fallback to RunLocalTests if coverage insufficient
+# Validation Strategy:
+#   1. Try RunSpecifiedTests with mapped test classes
+#   2. Fallback to RunLocalTests if needed
 #   3. Skip tests for metadata-only deployments (NoTestRun)
 #
-# Outputs:
-#   - reports/deploy-report.json: Deployment validation results
-#   - reports/validation-summary.txt: Human-readable summary
+# Output:
+#   - Deployment validation results
+#   - Test execution summary
+#   - Code coverage metrics
+#   - Quality gate validation
 # ==============================================================================
 
 set -euo pipefail
 
 echo ""
-echo "🚀 STAGE 5B: DEPLOYMENT VALIDATION"
-echo "================================"
+echo "🚀 STAGE 6: DRY-RUN VALIDATION & QUALITY GATES"
+echo "=============================================="
+echo "🔍 Validating deployment with check-only mode (no actual deployment)..."
 
 # Create reports directory
 mkdir -p reports
@@ -33,32 +36,32 @@ summary() {
   echo "$1" | tee -a reports/validation-summary.txt
 }
 
-summary "🚀 Starting deployment validation process..."
-
 # Check if there's deployable metadata
 if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | wc -l)" -gt 0 ]; then
-  summary "📦 Deployable metadata detected in delta package"
+  summary "📦 Deployable metadata detected"
 
   # Check if Apex components exist (requiring test execution)
   if find delta/force-app -name "*.cls" -o -name "*.trigger" 2>/dev/null | grep -q .; then
-    summary "🔧 Apex components detected - test execution required"
+    summary "🧪 Apex components detected - running tests"
 
     echo ""
-    echo "⚙️  EXECUTING DEPLOYMENT VALIDATION WITH TESTS"
-    echo "=============================================="
+    echo "⚙️  EXECUTING DRY-RUN VALIDATION WITH TESTS"
+    echo "==========================================="
 
     # Try intelligent test selection first
     if [ -n "${RELATED_TESTS:-}" ]; then
       RELATED_TESTS_CSV=$(echo "$RELATED_TESTS" | xargs -n1 | paste -sd, - || echo "")
-      summary "🎯 Using intelligent test selection: ${RELATED_TESTS_CSV}"
+      summary "🎯 Test Strategy: RunSpecifiedTests"
+      summary "   Tests: ${RELATED_TESTS_CSV}"
 
       echo ""
-      echo "📋 Test Strategy: RunSpecifiedTests"
+      echo "📋 Validation Details:"
+      echo "  • Mode: Dry-run (check-only - no actual deployment)"
       echo "  • Tests: $RELATED_TESTS_CSV"
-      echo "  • Validation Mode: Dry-run (check-only)"
+      echo "  • Environment: Sandbox"
       echo ""
 
-      summary "🔄 Running deployment validation with mapped tests..."
+      summary "🔄 Running validation..."
       
       if sf project deploy start \
         --source-dir delta/force-app \
@@ -67,9 +70,9 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
         --test-level RunSpecifiedTests \
         --tests "$RELATED_TESTS_CSV" \
         --json > reports/deploy-report.json 2>&1; then
-        summary "✅ Mapped-tests deploy validation: Succeeded"
+        summary "✅ Validation passed with mapped tests"
       else
-        summary "⚠️  Mapped-tests deploy validation: Failed (see reports/deploy-report.json). Will retry with RunLocalTests."
+        summary "⚠️  Validation failed with mapped tests - trying fallback"
       fi
 
       # Calculate coverage
@@ -78,16 +81,17 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
         COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
         COVERAGE=${COVERAGE%.*}
       fi
-      summary "📊 Coverage from mapped-tests run: ${COVERAGE}%"
+      summary "📊 Coverage: ${COVERAGE}%"
 
       # Check if fallback needed
       if [ "$COVERAGE" -lt "${COVERAGE_THRESHOLD}" ] || jq -e '.result.status != "Succeeded"' reports/deploy-report.json >/dev/null 2>&1; then
-        summary "⚠️  Triggering fallback: RunLocalTests (either mapped run failed or coverage < ${COVERAGE_THRESHOLD}%)."
+        summary "⚠️  Fallback required (coverage < ${COVERAGE_THRESHOLD}% or validation failed)"
+        summary "🔄 Test Strategy: RunLocalTests (all org tests)"
         
         echo ""
-        echo "📋 Fallback Test Strategy: RunLocalTests"
+        echo "📋 Fallback Validation:"
+        echo "  • Mode: Dry-run (check-only)"
         echo "  • Tests: All local tests in org"
-        echo "  • Validation Mode: Dry-run (check-only)"
         echo ""
         
         if sf project deploy start \
@@ -96,23 +100,22 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
           --dry-run \
           --test-level RunLocalTests \
           --json > reports/deploy-report-coverage.json 2>&1; then
-          summary "✅ Fallback RunLocalTests: Succeeded"
+          summary "✅ Fallback validation passed"
           mv reports/deploy-report-coverage.json reports/deploy-report.json
         else
-          summary "❌ Fallback RunLocalTests: Failed (see reports/deploy-report-coverage.json)"
+          summary "❌ Fallback validation failed"
           mv reports/deploy-report-coverage.json reports/deploy-report.json || true
         fi
-      else
-        summary "✅ Mapped-tests coverage meets threshold; no fallback required."
       fi
 
     else
-      summary "ℹ️  No mapped tests found; running RunLocalTests."
+      summary "🔄 Test Strategy: RunLocalTests (no mapped tests)"
       
       echo ""
-      echo "📋 Test Strategy: RunLocalTests"
+      echo "📋 Validation Details:"
+      echo "  • Mode: Dry-run (check-only - no actual deployment)"
       echo "  • Tests: All local tests in org"
-      echo "  • Validation Mode: Dry-run (check-only)"
+      echo "  • Environment: Sandbox"
       echo ""
       
       if sf project deploy start \
@@ -121,22 +124,23 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
         --dry-run \
         --test-level RunLocalTests \
         --json > reports/deploy-report.json 2>&1; then
-        summary "✅ RunLocalTests deploy validation: Succeeded"
+        summary "✅ Validation passed"
       else
-        summary "❌ RunLocalTests deploy validation: Failed (see reports/deploy-report.json)"
+        summary "❌ Validation failed"
       fi
     fi
 
   else
-    summary "📄 Metadata-only deployment (LWC/CustomObject/Flow) - no test execution required"
+    summary "📄 Metadata-only deployment (LWC/Config) - no tests required"
     
     echo ""
-    echo "⚙️  EXECUTING METADATA-ONLY DEPLOYMENT VALIDATION"
-    echo "==============================================="
+    echo "⚙️  EXECUTING METADATA-ONLY VALIDATION"
+    echo "====================================="
     echo ""
-    echo "📋 Test Strategy: NoTestRun"
-    echo "  • Validation Mode: Dry-run (check-only)"
-    echo "  • Components: Metadata only (no Apex code)"
+    echo "📋 Validation Details:"
+    echo "  • Mode: Dry-run (check-only - no actual deployment)"
+    echo "  • Type: Metadata-only (no Apex code)"
+    echo "  • Environment: Sandbox"
     echo ""
     
     sf project deploy start \
@@ -146,16 +150,111 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
       --test-level NoTestRun \
       --json > reports/deploy-report.json 2>&1 || true
     
-    summary "✅ Metadata-only validation completed"
+    summary "✅ Metadata validation completed"
   fi
 
 else
-  summary "📋 No deployable metadata found in delta. Skipping validation."
+  summary "ℹ️  No deployable metadata - skipping validation"
   echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
 fi
 
-summary "🏁 Deployment validation process completed"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📊 VALIDATION SUMMARY"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Extract metrics from deploy report
+STATUS="Failed"
+COMPONENT_FAIL_COUNT=0
+TEST_FAIL_COUNT=0
+COVERAGE=0
+
+if [ -f reports/deploy-report.json ]; then
+  STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
+  
+  if jq -e '.result.details.componentFailures' reports/deploy-report.json >/dev/null 2>&1; then
+    COMPONENT_FAIL_COUNT=$(jq '.result.details.componentFailures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+  fi
+  
+  if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json >/dev/null 2>&1; then
+    TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+  fi
+  
+  if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+    COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
+    COVERAGE=${COVERAGE%.*}
+  fi
+fi
+
+echo "  • Validation Status: ${STATUS}"
+echo "  • Component Failures: ${COMPONENT_FAIL_COUNT}"
+echo "  • Test Failures: ${TEST_FAIL_COUNT}"
+echo "  • Code Coverage: ${COVERAGE}% (threshold: ${COVERAGE_THRESHOLD}%)"
+echo ""
+
+# Display detailed failure information if needed
+if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⚠️  ISSUES DETECTED"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Display test failures
+  if [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
+    echo ""
+    echo "🧪 Test Failures:"
+    jq -r '.result.details.runTestResult.failures[]? |
+      "  ❌ \(.name).\(.methodName // "unknown")\n     \(.message // "" )" ' reports/deploy-report.json 2>/dev/null \
+      | sed -e "s/<br>/\\n/g" -e "s/<[^>]*>//g" \
+      | head -20 || true
+  fi
+
+  # Display component failures
+  if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ]; then
+    echo ""
+    echo "🔧 Component Failures:"
+    jq -r '.result.details.componentFailures[]? | "  ❌ " + (.fileName // .name) + ": " + (.problem // "Unknown")' reports/deploy-report.json 2>/dev/null | head -10 || true
+  fi
+fi
 
 echo ""
-echo "✅ STAGE 5B COMPLETED: Deployment validation finished"
-echo "================================================"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔍 QUALITY GATE VALIDATION"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Validate quality gates
+if [ "$STATUS" = "Succeeded" ]; then
+  echo "✅ Validation: PASSED"
+  echo "✅ All quality gates met"
+  echo ""
+  echo "🎉 DEPLOYMENT READY"
+  exit 0
+  
+elif [ "$STATUS" = "Skipped" ] && [ "${COMPONENT_FAIL_COUNT}" -eq 0 ] && [ "${TEST_FAIL_COUNT}" -eq 0 ]; then
+  echo "✅ Validation: SKIPPED (no changes)"
+  echo "✅ All quality gates met"
+  echo ""
+  echo "🎉 PIPELINE SUCCESSFUL"
+  exit 0
+  
+elif [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
+  echo "❌ Validation: FAILED"
+  echo "   • Component Failures: ${COMPONENT_FAIL_COUNT}"
+  echo "   • Test Failures: ${TEST_FAIL_COUNT}"
+  echo ""
+  echo "💥 QUALITY GATES FAILED - Fix issues before deploying"
+  exit 1
+  
+elif [ "$STATUS" != "Succeeded" ] && [ "$COVERAGE" -lt "${COVERAGE_THRESHOLD}" ] && [ "$STATUS" != "Skipped" ]; then
+  echo "❌ Validation: FAILED"
+  echo "   • Coverage: ${COVERAGE}% (required: ${COVERAGE_THRESHOLD}%)"
+  echo ""
+  echo "💥 QUALITY GATES FAILED - Increase test coverage"
+  exit 1
+  
+else
+  echo "✅ Validation: PASSED"
+  echo "✅ All quality gates met"
+  echo ""
+  echo "🎉 DEPLOYMENT READY"
+  exit 0
+fi
