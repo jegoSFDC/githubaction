@@ -128,11 +128,10 @@ run_code_analyzer() {
         else
           echo "  ✅ No violations found - code meets quality standards!"
         fi
-      else
-        echo "⚠️  Output file not found: $output_file"
-        mkdir -p reports
-        echo '[]' > "$output_file"
-      fi
+    else
+      echo "⚠️  Output file not found: $output_file"
+      mkdir -p reports
+      echo '[]' > "$output_file"
     fi
 
   else
