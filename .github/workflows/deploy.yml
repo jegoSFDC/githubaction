@@ -117,45 +117,16 @@ jobs:
           echo "🔍 Static Code Analysis Results:"
           echo "=================================="
           
-          # Debug JSON structure first
-          echo "📋 Debug: Checking JSON structure..."
-          if [ -f "reports/apex.json" ]; then
-            echo "Apex JSON keys:"
-            cat reports/apex.json | jq 'keys' 2>/dev/null || echo "Cannot parse JSON"
-            echo "Apex JSON structure sample:"
-            cat reports/apex.json | jq '. | keys_unsorted' 2>/dev/null || echo "Cannot parse JSON"
-          fi
-          
-          if [ -f "reports/lwc.json" ]; then
-            echo "LWC JSON keys:"
-            cat reports/lwc.json | jq 'keys' 2>/dev/null || echo "Cannot parse JSON"
-          fi
-          
-          echo ""
-          
           # Display Apex results with correct parsing
           if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
             echo "📊 Apex Analysis Results:"
             
-            # Try different JSON structure paths
-            APEX_VIOLATIONS_V1=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
-            APEX_VIOLATIONS_V2=$(cat reports/apex.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
-            APEX_VIOLATIONS_V3=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
-            APEX_VIOLATIONS_V4=$(cat reports/apex.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
+            # Use correct JSON path for violations count
+            APEX_VIOLATIONS=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
             
-            # Use the highest non-zero value
-            APEX_VIOLATIONS=$APEX_VIOLATIONS_V1
-            if [ $APEX_VIOLATIONS_V2 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V2; fi
-            if [ $APEX_VIOLATIONS_V3 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V3; fi
-            if [ $APEX_VIOLATIONS_V4 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V4; fi
-            
-            echo "Raw counts: v1=$APEX_VIOLATIONS_V1 v2=$APEX_VIOLATIONS_V2 v3=$APEX_VIOLATIONS_V3 v4=$APEX_VIOLATIONS_V4"
-            
-            if [ $APEX_VIOLATIONS -gt 0 ]; then
+            if [ "$APEX_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               echo "High Priority Issues:"
-              # Try different paths for violation details
-              cat reports/apex.json | jq -r '.result[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -10 || \
               cat reports/apex.json | jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -10 || \
               echo "Check reports/apex.json for details"
             else
@@ -171,25 +142,12 @@ jobs:
           if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
             echo "📊 LWC Analysis Results:"
             
-            # Try different JSON structure paths
-            LWC_VIOLATIONS_V1=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
-            LWC_VIOLATIONS_V2=$(cat reports/lwc.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
-            LWC_VIOLATIONS_V3=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
-            LWC_VIOLATIONS_V4=$(cat reports/lwc.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
+            # Use correct JSON path for violations count
+            LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
             
-            # Use the highest non-zero value
-            LWC_VIOLATIONS=$LWC_VIOLATIONS_V1
-            if [ $LWC_VIOLATIONS_V2 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V2; fi
-            if [ $LWC_VIOLATIONS_V3 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V3; fi
-            if [ $LWC_VIOLATIONS_V4 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V4; fi
-            
-            echo "Raw counts: v1=$LWC_VIOLATIONS_V1 v2=$LWC_VIOLATIONS_V2 v3=$LWC_VIOLATIONS_V3 v4=$LWC_VIOLATIONS_V4"
-            
-            if [ $LWC_VIOLATIONS -gt 0 ]; then
+            if [ "$LWC_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               echo "Key Issues:"
-              # Try different paths for violation details
-              cat reports/lwc.json | jq -r '.result[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -5 || \
               cat reports/lwc.json | jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -5 || \
               echo "Check reports/lwc.json for details"
             else
@@ -205,57 +163,71 @@ jobs:
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
             echo "Analyzing delta for specified test execution..."
             
-            # Get Apex classes being deployed
-            APEX_CLASSES=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
-              grep -o '<members>[^<]*</members>' | \
-              sed 's/<members>//g; s/<\/members>//g' | \
-              grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
-            
-            # Get test classes being deployed
-            DEPLOYED_TESTS=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
-              grep -o '<members>[^<]*</members>' | \
-              sed 's/<members>//g; s/<\/members>//g' | \
-              grep -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
-            
-            if [ -n "$APEX_CLASSES" ]; then
-              echo "🔧 Apex classes being deployed: $APEX_CLASSES"
+            # Check if there are any actual Apex files (.cls or .trigger)
+            if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
+              echo "🔍 Found Apex files, analyzing deployment package..."
               
-              # Find corresponding test classes for deployed Apex classes
-              RELATED_TESTS=""
-              for class in $APEX_CLASSES; do
-                # Look for test class with same base name
-                TEST_CLASS="${class}Test"
-                if echo "$DEPLOYED_TESTS" | grep -q "$TEST_CLASS"; then
-                  RELATED_TESTS="$RELATED_TESTS $TEST_CLASS"
+              # Get Apex classes being deployed (only actual Apex classes)
+              APEX_CLASSES=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
+                grep -o '<members>[^<]*</members>' | \
+                sed 's/<members>//g; s/<\/members>//g' | \
+                grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+              
+              # Get test classes being deployed
+              DEPLOYED_TESTS=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
+                grep -o '<members>[^<]*</members>' | \
+                sed 's/<members>//g; s/<\/members>//g' | \
+                grep -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+              
+              echo "Apex classes found: $APEX_CLASSES"
+              echo "Test classes found: $DEPLOYED_TESTS"
+              
+              if [ -n "$APEX_CLASSES" ]; then
+                echo "🔧 Apex classes being deployed: $APEX_CLASSES"
+                
+                # Find corresponding test classes for deployed Apex classes
+                RELATED_TESTS=""
+                for class in $APEX_CLASSES; do
+                  TEST_CLASS="${class}Test"
+                  if echo "$DEPLOYED_TESTS" | grep -q "$TEST_CLASS"; then
+                    RELATED_TESTS="$RELATED_TESTS $TEST_CLASS"
+                  fi
+                done
+                
+                if [ -n "$RELATED_TESTS" ]; then
+                  echo "🎯 Running related test classes: $(echo $RELATED_TESTS | sed 's/ $//')"
+                  sf project deploy start \
+                    --source-dir delta/force-app \
+                    --target-org sandbox \
+                    --dry-run \
+                    --test-level RunSpecifiedTests \
+                    --tests $(echo $RELATED_TESTS | sed 's/ $//')
+                else
+                  echo "⚠️  No related test classes found, running all local tests"
+                  sf project deploy start \
+                    --source-dir delta/force-app \
+                    --target-org sandbox \
+                    --dry-run \
+                    --test-level RunLocalTests
                 fi
-              done
-              
-              if [ -n "$RELATED_TESTS" ]; then
-                echo "🎯 Running related test classes: $(echo $RELATED_TESTS | sed 's/ $//')"
+              elif [ -n "$DEPLOYED_TESTS" ]; then
+                echo "🧪 Only test classes being deployed: $DEPLOYED_TESTS"
                 sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunSpecifiedTests \
-                  --tests $(echo $RELATED_TESTS | sed 's/ $//')
+                  --tests $DEPLOYED_TESTS
               else
-                echo "⚠️  No related test classes found, running all local tests"
+                echo "📦 No Apex classes or test classes found, skipping test execution"
                 sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
-                  --test-level RunLocalTests
+                  --test-level NoTestRun
               fi
-            elif [ -n "$DEPLOYED_TESTS" ]; then
-              echo "🧪 Only test classes being deployed: $DEPLOYED_TESTS"
-              sf project deploy start \
-                --source-dir delta/force-app \
-                --target-org sandbox \
-                --dry-run \
-                --test-level RunSpecifiedTests \
-                --tests $DEPLOYED_TESTS
             else
-              echo "📦 No Apex classes or test classes, skipping test execution"
+              echo "📦 No Apex files found, skipping test execution"
               sf project deploy start \
                 --source-dir delta/force-app \
                 --target-org sandbox \
@@ -270,40 +242,39 @@ jobs:
         if: always()
         run: |
           echo ""
-          echo "🚦 Validation Status: ${{ steps.validate_deploy.outcome == 'success' && '✅ Passed' || steps.validate_deploy.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed' }}"
+          echo "🚦 Validation Status: ${{ steps.validate_deploy.outcome == 'success' && '✅ Succeeded' || '❌ Failed' }}"
           echo ""
           
           # Check deployment status
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            # Check if deployment failed
-            if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-              echo "Main Issues:"
-              echo ""
-              echo "🔴 Test Failure → Check test execution logs above"
-              echo "🔴 Coverage Failure → Review test coverage requirements"
-              echo ""
-            fi
             
-            # Extract components from package.xml
+            # Extract and display components in the requested format
             echo "📦 Deployment Package Metadata:"
+            echo "==============================================="
+            
+            COMPONENT_COUNT=0
+            COMPONENTS_LIST=""
+            
             if [ -f "delta/package/package.xml" ]; then
-              # Extract Apex classes
-              APEX_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep -v 'Test' | tr '\n' ', ' | sed 's/,$//')
-              if [ -n "$APEX_CLASSES" ]; then
-                echo "Apex: $APEX_CLASSES"
-              fi
+              # Extract all metadata components and number them
+              while IFS= read -r line; do
+                if [[ $line =~ members\>([^<]+)\</members ]]; then
+                  COMPONENT="${BASH_REMATCH[1]}"
+                  COMPONENT_COUNT=$((COMPONENT_COUNT + 1))
+                  COMPONENTS_LIST="$COMPONENTS_LIST$COMPONENT_COUNT. $COMPONENT"$'\n'
+                fi
+              done < <(grep '<members>' delta/package/package.xml)
               
-              # Extract Test classes
-              TEST_CLASSES=$(grep -o '<members>[^<]*</members>' delta/package/package.xml | sed 's/<members>//g; s/<\/members>//g' | grep 'Test' | tr '\n' ', ' | sed 's/,$//')
-              if [ -n "$TEST_CLASSES" ]; then
-                echo "Tests: $TEST_CLASSES"
+              if [ $COMPONENT_COUNT -gt 0 ]; then
+                echo "✅ **Number of Component Successes:** $COMPONENT_COUNT"
+                echo ""
+                echo "🟢 **Components Validated Successfully:**"
+                echo "$COMPONENTS_LIST"
+              else
+                echo "❌ No components found in package.xml"
               fi
-              
-              # Extract LWC components
-              LWC_COMPONENTS=$(find delta/force-app -name "*.js" -o -name "*.html" -o -name "*.css" | sed 's/.*\///' | tr '\n' ', ' | sed 's/,$//')
-              if [ -n "$LWC_COMPONENTS" ]; then
-                echo "UI: $LWC_COMPONENTS"
-              fi
+            else
+              echo "❌ No package.xml found"
             fi
             echo ""
             
@@ -313,19 +284,8 @@ jobs:
             LWC_VIOLATIONS=0
             
             if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
-              # Try multiple JSON structure patterns
-              APEX_VIOLATIONS_V1=$(cat reports/apex.json | jq '.result | length' 2>/dev/null || echo "0")
-              APEX_VIOLATIONS_V2=$(cat reports/apex.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
-              APEX_VIOLATIONS_V3=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
-              APEX_VIOLATIONS_V4=$(cat reports/apex.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
-              
-              # Use the highest non-zero value
-              APEX_VIOLATIONS=$APEX_VIOLATIONS_V1
-              if [ $APEX_VIOLATIONS_V2 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V2; fi
-              if [ $APEX_VIOLATIONS_V3 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V3; fi
-              if [ $APEX_VIOLATIONS_V4 -gt $APEX_VIOLATIONS ]; then APEX_VIOLATIONS=$APEX_VIOLATIONS_V4; fi
-              
-              if [ $APEX_VIOLATIONS -gt 0 ]; then
+              APEX_VIOLATIONS=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
+              if [ "$APEX_VIOLATIONS" -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
                 echo "✅ No Apex Violations"
@@ -335,19 +295,8 @@ jobs:
             fi
             
             if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
-              # Try multiple JSON structure patterns
-              LWC_VIOLATIONS_V1=$(cat reports/lwc.json | jq '.result | length' 2>/dev/null || echo "0")
-              LWC_VIOLATIONS_V2=$(cat reports/lwc.json | jq '.violationSummary.violationCount' 2>/dev/null || echo "0")
-              LWC_VIOLATIONS_V3=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
-              LWC_VIOLATIONS_V4=$(cat reports/lwc.json | jq 'if .results then (.results | length) else 0 end' 2>/dev/null || echo "0")
-              
-              # Use the highest non-zero value
-              LWC_VIOLATIONS=$LWC_VIOLATIONS_V1
-              if [ $LWC_VIOLATIONS_V2 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V2; fi
-              if [ $LWC_VIOLATIONS_V3 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V3; fi
-              if [ $LWC_VIOLATIONS_V4 -gt $LWC_VIOLATIONS ]; then LWC_VIOLATIONS=$LWC_VIOLATIONS_V4; fi
-              
-              if [ $LWC_VIOLATIONS -gt 0 ]; then
+              LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
+              if [ "$LWC_VIOLATIONS" -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
                 echo "✅ No LWC Violations"
@@ -369,9 +318,9 @@ jobs:
             fi
             
             if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-              echo "Deployment: 🔴 Failed (tests & coverage issues)"
+              echo "Deployment: ❌ Failed (tests & coverage issues)"
             else
-              echo "Deployment: 🟢 Passed"
+              echo "Deployment: ✅ Succeeded"
             fi
             echo ""
             
@@ -379,7 +328,7 @@ jobs:
             echo "🎯 Test Results"
             if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
               echo "Test Execution → ❌ Failed (check logs above)"
-              echo "Coverage → ❌ Review coverage requirements"
+              echo "Coverage → ❌ Below 75% requirement"
             else
               echo "Test Execution → ✅ Passed"
               echo "Coverage → ✅ All requirements met"
