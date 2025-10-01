@@ -36,9 +36,24 @@ if [ ! -f "delta/package/package.xml" ]; then
   exit 0
 fi
 
-# Extract Apex classes from package.xml
+# Extract ONLY Apex classes from package.xml (not LWC or other components)
 echo "📦 Scanning package.xml for Apex classes..."
-DELTA_APEX_CLASSES=$(grep -oP '(?<=<members>).*?(?=</members>)' delta/package/package.xml 2>/dev/null | grep -v '^$' | tr '\n' ' ' | sed 's/ *$//' || echo "")
+
+# Use awk to extract only members within ApexClass or ApexTrigger types
+DELTA_APEX_CLASSES=$(awk '
+  /<types>/,/<\/types>/ {
+    if (/<name>(ApexClass|ApexTrigger)<\/name>/) {
+      in_apex = 1
+    }
+    if (in_apex && /<members>/) {
+      match($0, /<members>(.*)<\/members>/, arr)
+      if (arr[1]) print arr[1]
+    }
+    if (/<\/types>/) {
+      in_apex = 0
+    }
+  }
+' delta/package/package.xml 2>/dev/null | tr '\n' ' ' | sed 's/ *$//' || echo "")
 
 if [ -z "$DELTA_APEX_CLASSES" ]; then
   echo "ℹ️  No Apex classes found in package.xml"

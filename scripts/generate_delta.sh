@@ -123,8 +123,17 @@ PY
 
     echo ""
     echo "🔍 Destructive Changes Analysis:"
-    if find delta -name "destructiveChanges*.xml" -exec echo "  Found: {}" \; -exec sed -n '1,20p' {} \; | head -10; then
-      echo "  ⚠️  Destructive changes detected in deployment package"
+    DESTRUCTIVE_FILE=$(find delta -name "destructiveChanges*.xml" 2>/dev/null | head -1)
+    
+    if [ -n "$DESTRUCTIVE_FILE" ]; then
+      # Check if destructive changes XML contains actual members (not just empty structure)
+      if grep -q "<members>" "$DESTRUCTIVE_FILE" 2>/dev/null; then
+        echo "  Found: $DESTRUCTIVE_FILE"
+        cat "$DESTRUCTIVE_FILE"
+        echo "  ⚠️  Destructive changes detected - components will be deleted"
+      else
+        echo "  ✅ No destructive changes (empty destructiveChanges.xml)"
+      fi
     else
       echo "  ✅ No destructive changes found"
     fi
