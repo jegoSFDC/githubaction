@@ -109,13 +109,26 @@ execute_validation() {
     
     if jq -e '.result.details.runTestResult' "$report_file" >/dev/null 2>&1; then
       local tests_run
-      tests_run=$(jq -r '.result.details.runTestResult.testsRun // 0' "$report_file" 2>/dev/null || echo "0")
-      echo "  • Tests Executed: $tests_run"
+      tests_run=$(jq -r '.result.details.runTestResult.numTestsRun // .result.numberTestsCompleted // 0' "$report_file" 2>/dev/null || echo "0")
       
-      if [ "$tests_run" -gt 0 ]; then
-        local tests_passed
-        tests_passed=$(jq -r '.result.details.runTestResult.passing // 0' "$report_file" 2>/dev/null || echo "0")
-        echo "  • Tests Passed: $tests_passed"
+      local tests_passed
+      tests_passed=$(jq -r '(.result.details.runTestResult.numTestsRun // .result.numberTestsCompleted // 0) - (.result.details.runTestResult.numFailures // .result.numberTestErrors // 0)' "$report_file" 2>/dev/null || echo "0")
+      
+      local tests_failed
+      tests_failed=$(jq -r '.result.details.runTestResult.numFailures // .result.numberTestErrors // 0' "$report_file" 2>/dev/null || echo "0")
+      
+      echo "  • Tests Executed: $tests_run"
+      echo "  • Tests Passed: $tests_passed"
+      
+      if [ "$tests_failed" -gt 0 ]; then
+        echo "  • Tests Failed: $tests_failed ❌"
+      fi
+      
+      # Show coverage if available
+      if jq -e '.result.details.runTestResult.codeCoverage' "$report_file" >/dev/null 2>&1; then
+        local avg_coverage
+        avg_coverage=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent != null) | .coveredPercent] | if length > 0 then (add / length | floor) else 0 end' "$report_file" 2>/dev/null || echo "0")
+        echo "  • Code Coverage: ${avg_coverage}%"
       fi
     fi
     

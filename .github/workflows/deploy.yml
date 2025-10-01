@@ -155,87 +155,15 @@ jobs:
           retention-days: 30
 
       # ---------------------------------------------------------------------------
-      # QUALITY GATE VALIDATION
+      # COMPREHENSIVE QUALITY GATE ENFORCEMENT
       # ---------------------------------------------------------------------------
-      # Final validation step determines pipeline success/failure based on
-      # comprehensive quality metrics and organizational standards
+      # Validates deployment against organizational quality standards including:
+      # - Component deployment success
+      # - Test execution results and code coverage thresholds
+      # - Security and quality violation limits
+      # Determines final pipeline success/failure status
       # ---------------------------------------------------------------------------
 
-      - name: Validate Quality Gates
+      - name: Enforce Quality Gates and Generate Final Report
         if: always()
         run: ./scripts/generate_reports.sh
-
-      # ---------------------------------------------------------------------------
-      # PIPELINE EXECUTION SUMMARY
-      # ---------------------------------------------------------------------------
-      # Display comprehensive summary of all pipeline stages and their status
-      # ---------------------------------------------------------------------------
-
-      - name: Display Pipeline Execution Summary
-        if: always()
-        run: |
-          echo ""
-          echo "=================================================================="
-          echo "🏁 SALESFORCE CI/CD PIPELINE EXECUTION COMPLETE"
-          echo "=================================================================="
-          echo ""
-
-          # Determine deployment status for better messaging
-          if [ "${HAS_DEPLOYMENT_PACKAGE:-false}" = "true" ]; then
-            # Check if we have Apex classes
-            if [ -n "${DELTA_APEX_CLASSES:-}" ]; then
-              echo "📋 PIPELINE STAGES EXECUTED:"
-              echo "   1. ✅ Environment Configuration"
-              echo "   2. ✅ Salesforce Authentication"
-              echo "   3. ✅ Delta Package Generation"
-              echo "   4. ✅ Static Code Analysis"
-              echo "   5. ✅ Intelligent Test Execution"
-              echo "   6. ✅ Deployment Validation (with Apex tests)"
-              echo "   7. ✅ Coverage Data Filtering"
-              echo "   8. ✅ Validation Reporting & Quality Gates"
-              echo ""
-              echo "📊 DEPLOYMENT TYPE: Apex deployment with code coverage validation"
-            else
-              echo "📋 PIPELINE STAGES EXECUTED:"
-              echo "   1. ✅ Environment Configuration"
-              echo "   2. ✅ Salesforce Authentication"
-              echo "   3. ✅ Delta Package Generation"
-              echo "   4. ✅ Static Code Analysis"
-              echo "   5. ⏭️  Intelligent Test Execution (skipped - no Apex code)"
-              echo "   6. ✅ Deployment Validation (LWC/metadata-only, NoTestRun)"
-              echo "   7. ⏭️  Coverage Data Filtering (skipped - no Apex code)"
-              echo "   8. ✅ Validation Reporting & Quality Gates"
-              echo ""
-              echo "📊 DEPLOYMENT TYPE: Metadata-only deployment (LWC/CustomObject/Flow/etc)"
-            fi
-          else
-            echo "📋 PIPELINE STAGES EXECUTED:"
-            echo "   1. ✅ Environment Configuration"
-            echo "   2. ✅ Salesforce Authentication"
-            echo "   3. ✅ Delta Package Generation"
-            echo "   4. ✅ Static Code Analysis"
-            echo "   5. ⏭️  Intelligent Test Execution (skipped - no Apex changes)"
-            echo "   6. ⏭️  Deployment Validation (skipped - no deployment package)"
-            echo "   7. ⏭️  Coverage Data Filtering (skipped - no deployment)"
-            echo "   8. ✅ Validation Reporting & Quality Gates"
-            echo ""
-            echo "📊 DEPLOYMENT TYPE: Script/YAML-only changes (no deployment needed)"
-            echo "ℹ️  Pipeline completed successfully for non-deployment changes"
-          fi
-
-          echo ""
-          echo "📊 ARTIFACTS GENERATED:"
-          echo "   • Static Code Analysis Reports"
-          if [ "${HAS_DEPLOYMENT_PACKAGE:-false}" = "true" ]; then
-            echo "   • Deployment Validation Reports"
-            echo "   • Test Mapping JSON"
-            echo "   • Coverage Analysis Data"
-          else
-            echo "   • Deployment Validation Reports (placeholder - no deployment)"
-            echo "   • Test Mapping JSON (placeholder - no Apex changes)"
-            echo "   • Coverage Analysis Data (placeholder - no deployment)"
-          fi
-          echo ""
-          echo "🔗 ARTIFACT RETENTION: 30 days"
-          echo ""
-          echo "=================================================================="

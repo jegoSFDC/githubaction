@@ -73,17 +73,28 @@ run_code_analyzer() {
       echo y | sf plugins install @salesforce/sfdx-scanner >/dev/null 2>&1 || true
     fi
     
-    if sf scanner run \
+    # Run scanner (exit code 1 means violations found, which is NOT an error)
+    set +e  # Temporarily disable exit on error
+    sf scanner run \
       --target "$target" \
       --format json \
       --outfile "$output_file" \
-      --severity-threshold "${SEVERITY_THRESHOLD}" 2>&1 | tee /tmp/code_analyzer_${component_type}.log; then
+      --severity-threshold "${SEVERITY_THRESHOLD}" 2>&1 | tee /tmp/code_analyzer_${component_type}.log
+    
+    local scanner_exit_code=$?
+    set -e  # Re-enable exit on error
 
-      echo ""
-      echo "✅ $component_type analysis completed successfully"
+    echo ""
+    if [ $scanner_exit_code -eq 0 ]; then
+      echo "✅ $component_type analysis completed - no violations found"
+    elif [ $scanner_exit_code -eq 1 ]; then
+      echo "⚠️  $component_type analysis completed - violations detected (exit code 1)"
+    else
+      echo "❌ $component_type analysis failed with exit code $scanner_exit_code"
+    fi
 
-      # Display analysis results summary
-      if [ -f "$output_file" ]; then
+    # Display analysis results summary
+    if [ -f "$output_file" ]; then
         # Scanner output format is different from code-analyzer - check both
         VIOLATION_COUNT=0
         
@@ -132,7 +143,8 @@ run_code_analyzer() {
   else
     echo "ℹ️  No $component_type modifications detected - skipping analysis"
     # Create empty report file for consistency
-    echo '{"violations":[]}' > "$output_file"
+    mkdir -p reports
+    echo '[]' > "$output_file"
   fi
 }
 
