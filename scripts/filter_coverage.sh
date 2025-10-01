@@ -40,14 +40,28 @@ echo ""
 
 # Check if coverage data exists
 if ! jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
-  echo "ℹ️  No coverage data available (metadata-only or tests failed)"
+  # Check if tests failed
+  TEST_FAIL_COUNT=0
+  if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json >/dev/null 2>&1; then
+    TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+  fi
+  
+  if [ "$TEST_FAIL_COUNT" -gt 0 ]; then
+    echo "⚠️  No coverage data - tests failed during execution"
+    echo ""
+    echo "ℹ️  Salesforce doesn't generate coverage when tests fail."
+    echo "   Fix test failures first, then coverage will be available."
+  else
+    echo "ℹ️  No coverage data available (metadata-only deployment)"
+  fi
+  
   echo ""
-  echo "📊 Delta Classes:"
+  echo "📊 Delta Classes (coverage unavailable):"
   for cls in $DELTA_APEX_CLASSES; do
-    echo "  • $cls: No coverage data"
+    echo "  • $cls"
   done
   echo ""
-  echo "✅ STAGE 5C COMPLETED: Coverage analysis finished"
+  echo "✅ STAGE 5C COMPLETED: Coverage analysis skipped"
   echo "============================================="
   exit 0
 fi
