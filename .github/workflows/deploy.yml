@@ -154,6 +154,15 @@ jobs:
         run: |
           echo "🔍 Analyzing Apex classes in delta for test mapping..."
 
+          # Extract Apex classes from delta package.xml
+          if [ -f delta/package/package.xml ]; then
+            DELTA_APEX_CLASSES=$(xmllint --xpath "//members[../name='ApexClass']/text()" delta/package/package.xml 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+            echo "📋 Apex classes in delta package.xml: ${DELTA_APEX_CLASSES:-none}"
+          else
+            echo "⚠️ No delta/package/package.xml found"
+            DELTA_APEX_CLASSES=""
+          fi
+
           # Only extract actual .cls files from delta
           APEX_CLASSES=$(find delta/force-app/main/default/classes -name '*.cls' -maxdepth 1 -exec basename {} .cls \; | tr '\n' ' ' | sed 's/ *$//')
 
@@ -229,6 +238,7 @@ jobs:
           echo "✅ Test mapping complete. Tests to run: ${RELATED_TESTS:-none (RunLocalTests fallback)}"
 
           echo "APEX_CLASSES=$APEX_CLASSES" >> $GITHUB_ENV
+          echo "DELTA_APEX_CLASSES=$DELTA_APEX_CLASSES" >> $GITHUB_ENV
           echo "TESTS_IN_DELTA=$TESTS_IN_DELTA" >> $GITHUB_ENV
           echo "RELATED_TESTS=$RELATED_TESTS" >> $GITHUB_ENV
 
@@ -319,6 +329,42 @@ jobs:
           else
             summary "No deployable metadata found in delta. Skipping validation."
             echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
+          fi
+
+      - name: Filter Coverage for Delta Classes
+        if: always()
+        run: |
+          set -euo pipefail
+          
+          # Check if we have a deploy report with coverage data
+          if [ ! -f reports/deploy-report.json ]; then
+            echo "No deploy report found, skipping coverage filtering"
+            exit 0
+          fi
+          
+          # Check if we have delta classes information
+          if [ -z "${DELTA_APEX_CLASSES:-}" ]; then
+            echo "No delta classes found, skipping coverage filtering"
+            exit 0
+          fi
+          
+          echo "🔍 Filtering coverage data for delta classes only..."
+          echo "Delta classes: $DELTA_APEX_CLASSES"
+          
+          # Create a filtered version of the deploy report that only includes coverage for delta classes
+          jq --arg delta_classes "$DELTA_APEX_CLASSES" '
+            .result.details.runTestResult.codeCoverage = [
+              .result.details.runTestResult.codeCoverage[]? | 
+              select(.name as $name | ($delta_classes | split(" ") | index($name)))
+            ]
+          ' reports/deploy-report.json > reports/deploy-report-filtered.json 2>/dev/null || echo "Failed to filter coverage data"
+          
+          # If filtering succeeded, replace the original report
+          if [ -f reports/deploy-report-filtered.json ]; then
+            mv reports/deploy-report-filtered.json reports/deploy-report.json
+            echo "✅ Coverage data filtered successfully"
+          else
+            echo "⚠️ Coverage filtering failed, using original report"
           fi
 
       - name: Display Validation Summary (human-friendly)
