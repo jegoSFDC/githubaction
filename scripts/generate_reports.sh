@@ -229,9 +229,9 @@ main() {
     echo "✅ Delta Package Generation: Completed"
     echo "✅ Static Code Analysis: Completed"
     if [ "$COVERAGE" = "N/A" ]; then
-      echo "✅ Intelligent Test Execution: Skipped (metadata-only)"
-      echo "✅ Deployment Validation: Completed (no tests)"
-      echo "✅ Coverage Filtering: Skipped (metadata-only)"
+      echo "⏭️  Intelligent Test Execution: Skipped (metadata-only)"
+      echo "⏭️  Deployment Validation: Skipped (no deployment package)"
+      echo "⏭️  Coverage Filtering: Skipped (metadata-only)"
     else
       echo "✅ Intelligent Test Execution: Completed"
       echo "✅ Deployment Validation: Completed"
@@ -254,9 +254,9 @@ main() {
     echo "✅ Delta Package Generation: Completed"
     echo "✅ Static Code Analysis: Completed"
     if [ "$COVERAGE" = "N/A" ]; then
-      echo "✅ Intelligent Test Execution: Skipped (metadata-only)"
-      echo "✅ Deployment Validation: Completed (no tests)"
-      echo "✅ Coverage Filtering: Skipped (metadata-only)"
+      echo "⏭️  Intelligent Test Execution: Skipped (metadata-only)"
+      echo "⏭️  Deployment Validation: Skipped (no deployment package)"
+      echo "⏭️  Coverage Filtering: Skipped (metadata-only)"
     else
       echo "✅ Intelligent Test Execution: Completed"
       echo "✅ Deployment Validation: Completed"
