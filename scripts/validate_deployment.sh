@@ -153,10 +153,40 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
     summary "✅ Metadata validation completed"
   fi
 
-  # For metadata deployments, also show if scripts/YAML were modified
+  # For metadata deployments, show ALL modified files (metadata + scripts/YAML)
   echo ""
-  echo "📝 Additional Files Modified (scripts/YAML):"
-  git diff --name-only "origin/${TARGET_BRANCH:-main}" HEAD 2>/dev/null | grep -E '\.(sh|yml|yaml|json|md)$' | head -20 || echo "  (no script/config changes detected)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 ALL FILES MODIFIED IN THIS CHANGE"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  ALL_MODIFIED=$(git diff --name-only "origin/${TARGET_BRANCH:-main}" HEAD 2>/dev/null | head -30)
+  
+  if [ -n "$ALL_MODIFIED" ]; then
+    # Separate metadata from scripts/config
+    METADATA_FILES=$(echo "$ALL_MODIFIED" | grep -E '^force-app/' || echo "")
+    SCRIPT_FILES=$(echo "$ALL_MODIFIED" | grep -E '\.(sh|yml|yaml)$' || echo "")
+    CONFIG_FILES=$(echo "$ALL_MODIFIED" | grep -E '\.(json|md|xml)$' | grep -v '^force-app/' || echo "")
+    
+    if [ -n "$METADATA_FILES" ]; then
+      echo ""
+      echo "📦 Salesforce Metadata:"
+      echo "$METADATA_FILES" | sed 's/^/  /'
+    fi
+    
+    if [ -n "$SCRIPT_FILES" ]; then
+      echo ""
+      echo "🔧 Pipeline Scripts:"
+      echo "$SCRIPT_FILES" | sed 's/^/  /'
+    fi
+    
+    if [ -n "$CONFIG_FILES" ]; then
+      echo ""
+      echo "⚙️  Configuration Files:"
+      echo "$CONFIG_FILES" | sed 's/^/  /'
+    fi
+  else
+    echo "  (unable to determine changed files)"
+  fi
   echo ""
 
 else
