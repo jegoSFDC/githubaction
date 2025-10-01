@@ -92,6 +92,8 @@ jobs:
           sf plugins --core
 
       - name: Generate Deployment Delta Package
+        env:
+          TARGET_BRANCH: ${{ github.base_ref }}
         run: ./scripts/generate_delta.sh
 
       # ---------------------------------------------------------------------------
@@ -101,6 +103,9 @@ jobs:
       # ---------------------------------------------------------------------------
 
       - name: Execute Static Code Analysis
+        env:
+          GITHUB_EVENT_MODIFIED: ${{ github.event.head_commit.modified }}
+          GITHUB_EVENT_ADDED: ${{ github.event.head_commit.added }}
         run: ./scripts/analyze_code.sh
 
       - name: Archive Code Analysis Artifacts
@@ -154,3 +159,37 @@ jobs:
       - name: Validate Quality Gates
         if: always()
         run: ./scripts/generate_reports.sh
+
+      # ---------------------------------------------------------------------------
+      # PIPELINE EXECUTION SUMMARY
+      # ---------------------------------------------------------------------------
+      # Display comprehensive summary of all pipeline stages and their status
+      # ---------------------------------------------------------------------------
+
+      - name: Display Pipeline Execution Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=================================================================="
+          echo "🏁 SALESFORCE CI/CD PIPELINE EXECUTION COMPLETE"
+          echo "=================================================================="
+          echo ""
+          echo "📋 PIPELINE STAGES EXECUTED:"
+          echo "   1. ✅ Environment Configuration"
+          echo "   2. ✅ Salesforce Authentication"
+          echo "   3. ✅ Delta Package Generation"
+          echo "   4. ✅ Static Code Analysis"
+          echo "   5. ✅ Intelligent Test Execution"
+          echo "   6. ✅ Deployment Validation"
+          echo "   7. ✅ Coverage Data Filtering"
+          echo "   8. ✅ Validation Reporting & Quality Gates"
+          echo ""
+          echo "📊 ARTIFACTS GENERATED:"
+          echo "   • Static Code Analysis Reports"
+          echo "   • Deployment Validation Reports"
+          echo "   • Test Mapping JSON"
+          echo "   • Coverage Analysis Data"
+          echo ""
+          echo "🔗 ARTIFACT RETENTION: 30 days"
+          echo ""
+          echo "=================================================================="

@@ -79,6 +79,9 @@ calculate_coverage() {
 
 # Main validation orchestration
 main() {
+  echo ""
+  echo "🚀 STAGE 5B: DEPLOYMENT VALIDATION"
+  echo "================================"
   summary "🚀 Starting deployment validation process..."
 
   # Validate delta package exists and contains deployable content
@@ -97,6 +100,7 @@ main() {
         summary "🎯 Using intelligent test selection: ${related_tests_csv}"
 
         # Execute validation with mapped tests
+        echo "🔄 Executing deployment validation with targeted tests..."
         if execute_validation "RunSpecifiedTests" "$related_tests_csv"; then
           summary "✅ Intelligent test execution successful"
 
@@ -108,6 +112,7 @@ main() {
 
           if [ "$coverage" -lt "${COVERAGE_THRESHOLD}" ]; then
             summary "⚠️  Coverage below threshold (${COVERAGE_THRESHOLD}%) - attempting fallback"
+            echo "🔄 Executing fallback with full test suite..."
 
             # Fallback to full test suite
             if execute_validation "RunLocalTests"; then
@@ -122,6 +127,7 @@ main() {
 
         else
           summary "⚠️  Intelligent test execution failed - attempting fallback"
+          echo "🔄 Executing fallback with full test suite..."
 
           # Fallback to full test suite
           if execute_validation "RunLocalTests"; then
@@ -133,11 +139,13 @@ main() {
 
       else
         summary "ℹ️  No related tests identified - executing full test suite"
+        echo "🔄 Executing deployment validation with full test suite..."
         execute_validation "RunLocalTests"
       fi
 
     else
       summary "📄 Non-Apex metadata only - skipping test execution"
+      echo "🔄 Executing deployment validation without test execution..."
       execute_validation "NoTestRun"
     fi
 
@@ -147,6 +155,10 @@ main() {
   fi
 
   summary "🏁 Deployment validation process completed"
+
+  echo ""
+  echo "✅ STAGE 5B COMPLETED: Deployment validation finished"
+  echo "================================================"
 }
 
 # Execute main validation function

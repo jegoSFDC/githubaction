@@ -19,21 +19,28 @@
 
 set -euo pipefail
 
+echo ""
+echo "🚀 STAGE 3: DELTA PACKAGE GENERATION"
+echo "======================================"
 echo "🔄 Generating deployment delta package..."
 
 # Ensure output directories exist
+echo "📁 Creating output directories..."
 mkdir -p delta reports
 
 # Configure git safety for workspace operations
+echo "🔧 Configuring git workspace safety..."
 git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
 # Fetch target branch for delta comparison
-TARGET_BRANCH="${{ github.base_ref }}"
+TARGET_BRANCH="${TARGET_BRANCH:-main}"
+echo "📥 Fetching target branch: $TARGET_BRANCH"
 git fetch origin "$TARGET_BRANCH" --quiet
 
 echo "📊 Generating delta from origin/$TARGET_BRANCH to HEAD"
 
 # Generate delta package using sfdx-git-delta plugin
+echo "⚙️  Executing sfdx-git-delta plugin..."
 if sf sgd source delta \
   --to HEAD \
   --from "origin/$TARGET_BRANCH" \
@@ -63,9 +70,9 @@ if [ -f delta/package/package.xml ]; then
   echo ""
   echo "🔍 Destructive Changes Analysis:"
   if find delta -name "destructiveChanges*.xml" -exec echo "  Found: {}" \; -exec sed -n '1,20p' {} \; | head -10; then
-    echo "  Destructive changes detected in deployment package"
+    echo "  ⚠️  Destructive changes detected in deployment package"
   else
-    echo "  No destructive changes found"
+    echo "  ✅ No destructive changes found"
   fi
 else
   echo ""
@@ -75,3 +82,7 @@ fi
 echo ""
 echo "📊 Delta generation summary:"
 ls -la delta || echo "No delta directory found"
+
+echo ""
+echo "✅ STAGE 3 COMPLETED: Delta package generated successfully"
+echo "=================================================="

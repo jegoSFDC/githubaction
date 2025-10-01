@@ -23,6 +23,9 @@
 
 set -euo pipefail
 
+echo ""
+echo "🚀 STAGE 4: STATIC CODE ANALYSIS"
+echo "==============================="
 echo "🔍 Executing static code analysis..."
 
 # Function to run code analyzer for specific technology
@@ -32,21 +35,23 @@ run_code_analyzer() {
   local artifact_name=$3
   local component_type=$4
 
+  echo ""
   echo "🔎 Analyzing $component_type code in $target..."
 
   # Check if files of this type were modified
-  if [ "${{ github.event.head_commit.modified }}" != "null" ] && {
-    [[ "${{ github.event.head_commit.modified }}" == *"$component_type"* ]] ||
-    [[ "${{ github.event.head_commit.added }}" == *"$component_type"* ]]
+  if [ "${GITHUB_EVENT_MODIFIED:-}" != "null" ] && {
+    [[ "${GITHUB_EVENT_MODIFIED}" == *"$component_type"* ]] ||
+    [[ "${GITHUB_EVENT_ADDED:-}" == *"$component_type"* ]]
   }; then
 
     echo "📋 $component_type modifications detected - running analysis..."
 
+    echo "⚙️  Executing Salesforce Code Analyzer..."
     if sf code-analyzer analyze \
       --target "$target" \
       --view detail \
       --output-file "$output_file" \
-      --severity-threshold "${{ env.SEVERITY_THRESHOLD }}" > /dev/null 2>&1; then
+      --severity-threshold "${SEVERITY_THRESHOLD}" > /dev/null 2>&1; then
 
       echo "✅ $component_type analysis completed successfully"
 
@@ -70,6 +75,8 @@ run_code_analyzer() {
   fi
 }
 
+echo ""
+echo "🔧 Processing Apex Classes..."
 # Execute code analysis for Apex Classes
 run_code_analyzer \
   "force-app/main/default/classes" \
@@ -78,7 +85,7 @@ run_code_analyzer \
   "ApexClass"
 
 echo ""
-
+echo "⚡ Processing Lightning Web Components..."
 # Execute code analysis for Lightning Web Components
 run_code_analyzer \
   "force-app/main/default/lwc" \
@@ -88,5 +95,12 @@ run_code_analyzer \
 
 echo ""
 echo "📋 Code analysis execution summary:"
-echo "  • Apex violations: $(jq '.violations | length' reports/apex.json 2>/dev/null || echo '0')"
-echo "  • LWC violations: $(jq '.violations | length' reports/lwc.json 2>/dev/null || echo '0')"
+APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo '0')
+LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo '0')
+echo "  • Apex violations: $APEX_VIOLATIONS"
+echo "  • LWC violations: $LWC_VIOLATIONS"
+echo "  • Total violations: $((APEX_VIOLATIONS + LWC_VIOLATIONS))"
+
+echo ""
+echo "✅ STAGE 4 COMPLETED: Static code analysis finished"
+echo "==============================================="

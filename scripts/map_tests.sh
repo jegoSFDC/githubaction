@@ -24,6 +24,9 @@
 
 set -euo pipefail
 
+echo ""
+echo "🚀 STAGE 5: INTELLIGENT TEST EXECUTION"
+echo "===================================="
 echo "🧠 Analyzing delta package for intelligent test mapping..."
 
 # Initialize tracking variables
@@ -35,6 +38,7 @@ RELATED_TESTS=""
 classify_and_map_tests() {
   local apex_classes="$1"
 
+  echo ""
   echo "📋 Processing Apex classes: $apex_classes"
 
   for class in $apex_classes; do
@@ -73,11 +77,13 @@ map_production_to_tests() {
   echo "🔗 Mapping production classes to test classes..."
 
   # Initialize JSON output for test mapping
+  echo "📄 Generating test mapping JSON file..."
   echo "{" > reports/test-mapping.json
   echo '  "mapping": [' >> reports/test-mapping.json
   local separator=""
 
   if [ -n "$PROD_CLASSES" ] && [ -n "$TESTS_IN_DELTA" ]; then
+    echo "🔍 Analyzing relationships between production and test classes..."
     for prod_class in $PROD_CLASSES; do
       local found_tests=""
 
@@ -160,6 +166,10 @@ main() {
   else
     echo "ℹ️  No Apex classes found in delta - no test mapping required"
   fi
+
+  echo ""
+  echo "✅ STAGE 5 COMPLETED: Test mapping analysis finished"
+  echo "==============================================="
 }
 
 # Execute main function

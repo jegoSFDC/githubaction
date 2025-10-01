@@ -26,9 +26,13 @@
 
 set -euo pipefail
 
+echo ""
+echo "🚀 STAGE 5C: COVERAGE DATA FILTERING"
+echo "=================================="
 echo "🔍 Filtering coverage data for delta classes only..."
 
 # Validate prerequisites
+echo "🔍 Validating prerequisites..."
 if [ ! -f reports/deploy-report.json ]; then
   echo "❌ No deploy report found - cannot filter coverage data"
   exit 1
@@ -42,6 +46,7 @@ fi
 echo "📋 Delta classes for coverage filtering: $DELTA_APEX_CLASSES"
 
 # Create filtered coverage report using jq
+echo "⚙️  Processing coverage data with jq filtering..."
 if jq --arg delta_classes "$DELTA_APEX_CLASSES" '
   if .result.details.runTestResult.codeCoverage then
     .result.details.runTestResult.codeCoverage = [
@@ -54,6 +59,7 @@ if jq --arg delta_classes "$DELTA_APEX_CLASSES" '
 ' reports/deploy-report.json > reports/deploy-report-filtered.json 2>/dev/null; then
 
   # Replace original report with filtered version
+  echo "📄 Replacing original report with filtered version..."
   mv reports/deploy-report-filtered.json reports/deploy-report.json
   echo "✅ Coverage data successfully filtered for delta classes"
 
@@ -65,3 +71,7 @@ fi
 echo "📊 Filtered coverage report contains:"
 echo "  • $(jq '.result.details.runTestResult.codeCoverage | length' reports/deploy-report.json 2>/dev/null || echo '0') classes"
 echo "  • Coverage limited to delta package scope"
+
+echo ""
+echo "✅ STAGE 5C COMPLETED: Coverage filtering finished"
+echo "============================================="

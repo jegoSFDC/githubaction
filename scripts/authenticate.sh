@@ -17,9 +17,13 @@
 
 set -euo pipefail
 
+echo ""
+echo "🚀 STAGE 2: SALESFORCE AUTHENTICATION"
+echo "===================================="
 echo "🔐 Establishing Salesforce environment authentication..."
 
 # Validate required environment variable
+echo "🔍 Validating authentication credentials..."
 if [ -z "${SF_AUTH_URL:-}" ]; then
   echo "❌ Error: SF_AUTH_URL environment variable is not configured"
   echo "💡 Ensure SF_AUTH_URL secret is properly configured in repository settings"
@@ -27,10 +31,12 @@ if [ -z "${SF_AUTH_URL:-}" ]; then
 fi
 
 # Write authentication URL to temporary file for security
+echo "🔒 Preparing secure authentication file..."
 AUTH_FILE="/tmp/authFile.txt"
 echo "$SF_AUTH_URL" > "$AUTH_FILE"
 
 # Authenticate using SFDX URL and configure as default org
+echo "🔗 Connecting to Salesforce sandbox environment..."
 if sf org login sfdx-url \
   --sfdx-url-file "$AUTH_FILE" \
   --alias sandbox \
@@ -44,3 +50,7 @@ else
   rm -f "$AUTH_FILE"
   exit 1
 fi
+
+echo ""
+echo "✅ STAGE 2 COMPLETED: Salesforce authentication established"
+echo "======================================================="

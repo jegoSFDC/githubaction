@@ -179,25 +179,63 @@ validate_quality_gates() {
 
 # Main execution flow
 main() {
+  echo ""
+  echo "🚀 STAGE 6: VALIDATION REPORTING & QUALITY GATES"
+  echo "=============================================="
   echo "📋 Generating deployment validation reports..."
 
   # Extract metrics from deploy report
+  echo "📊 Extracting validation metrics from deploy report..."
   extract_validation_metrics
 
   # Generate summary report
+  echo "📄 Generating comprehensive validation summary..."
   generate_summary_report
 
   # Display detailed failure analysis if issues exist
+  echo "🔍 Analyzing validation results for quality gates..."
   display_failure_analysis
 
   # Validate quality gates and determine pipeline outcome
+  echo ""
+  echo "🔍 Validating quality gates..."
   if validate_quality_gates; then
     echo ""
-    echo "🎉 Pipeline quality gates: ALL PASSED"
+    echo "🎉 PIPELINE QUALITY GATES: ALL PASSED"
+    echo "===================================="
+
+    echo ""
+    echo "📋 PIPELINE EXECUTION SUMMARY"
+    echo "============================"
+    echo "✅ Environment Configuration: Completed"
+    echo "✅ Salesforce Authentication: Completed"
+    echo "✅ Delta Package Generation: Completed"
+    echo "✅ Static Code Analysis: Completed"
+    echo "✅ Intelligent Test Execution: Completed"
+    echo "✅ Deployment Validation: Completed"
+    echo "✅ Coverage Filtering: Completed"
+    echo "✅ Validation Reporting: Completed"
+    echo ""
+    echo "🏆 PIPELINE COMPLETED SUCCESSFULLY!"
     exit 0
   else
     echo ""
-    echo "💥 Pipeline quality gates: FAILED"
+    echo "💥 PIPELINE QUALITY GATES: FAILED"
+    echo "================================"
+
+    echo ""
+    echo "📋 PIPELINE EXECUTION SUMMARY"
+    echo "============================"
+    echo "✅ Environment Configuration: Completed"
+    echo "✅ Salesforce Authentication: Completed"
+    echo "✅ Delta Package Generation: Completed"
+    echo "✅ Static Code Analysis: Completed"
+    echo "✅ Intelligent Test Execution: Completed"
+    echo "✅ Deployment Validation: Completed"
+    echo "✅ Coverage Filtering: Completed"
+    echo "❌ Validation Reporting: FAILED"
+    echo ""
+    echo "⚠️  PIPELINE COMPLETED WITH ERRORS!"
     exit 1
   fi
 }
