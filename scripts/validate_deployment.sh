@@ -93,11 +93,11 @@ main() {
       summary "📦 Deployable metadata detected in delta package"
 
       # Check for Apex components requiring test execution
-      if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
+      if find delta/force-app -name "*.cls" -o -name "*.trigger" 2>/dev/null | grep -q .; then
         summary "🔧 Apex components detected - test execution required"
         APEX_DEPLOYMENT=true
       else
-        summary "📄 Metadata-only deployment detected - no test execution required"
+        summary "📄 Metadata-only deployment detected (LWC/other) - no test execution required"
         APEX_DEPLOYMENT=false
       fi
 

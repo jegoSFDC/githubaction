@@ -202,10 +202,8 @@ PY
     # Create empty test mapping file for consistency
     echo '{"result":"No Apex classes found","message":"Skipping test mapping for metadata-only changes"}' > reports/test-mapping.json
 
-    # Also set the deployment package flag if not already set
-    if [ "${HAS_DEPLOYMENT_PACKAGE:-}" != "false" ]; then
-      echo "HAS_DEPLOYMENT_PACKAGE=false" >> "$GITHUB_ENV"
-    fi
+    # DO NOT override HAS_DEPLOYMENT_PACKAGE here - it was set correctly in generate_delta.sh
+    # based on ALL metadata types, not just Apex classes
   fi
 
   echo ""

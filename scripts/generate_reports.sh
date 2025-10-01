@@ -56,6 +56,10 @@ extract_validation_metrics() {
     # Metadata-only deployment - no coverage requirements
     COVERAGE="N/A"
     summary "📄 Metadata-only deployment detected - coverage requirements waived"
+  elif jq -e '.result.status == "Succeeded" and (.result.details.runTestResult.testsRun == 0 or .result.details.runTestResult == null)' reports/deploy-report.json >/dev/null 2>&1; then
+    # Deployment succeeded with no tests run (metadata-only like LWC)
+    COVERAGE="N/A"
+    summary "📄 Metadata-only deployment (LWC/other) - coverage requirements waived"
   elif jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
     COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
     COVERAGE=${COVERAGE%.*}
@@ -229,9 +233,15 @@ main() {
     echo "✅ Delta Package Generation: Completed"
     echo "✅ Static Code Analysis: Completed"
     if [ "$COVERAGE" = "N/A" ]; then
-      echo "⏭️  Intelligent Test Execution: Skipped (metadata-only)"
-      echo "⏭️  Deployment Validation: Skipped (no deployment package)"
-      echo "⏭️  Coverage Filtering: Skipped (metadata-only)"
+      if [ "$STATUS" = "Succeeded" ]; then
+        echo "⏭️  Intelligent Test Execution: Skipped (no Apex code)"
+        echo "✅ Deployment Validation: Completed (metadata-only)"
+        echo "⏭️  Coverage Filtering: Skipped (no Apex code)"
+      else
+        echo "⏭️  Intelligent Test Execution: Skipped (metadata-only)"
+        echo "⏭️  Deployment Validation: Skipped (no deployment package)"
+        echo "⏭️  Coverage Filtering: Skipped (metadata-only)"
+      fi
     else
       echo "✅ Intelligent Test Execution: Completed"
       echo "✅ Deployment Validation: Completed"
