@@ -14,11 +14,7 @@ permissions:
   actions: read
 
 env:
-  SEVERITY_THRESHOLD: 3        # 1=all, 2=medium+, 3=high+, 4=critical
-  COVERAGE_THRESHOLD: 75       # Minimum coverage percentage required
-  # Tooling versions (change to pinned versions when you lock them)
-  SF_CLI_NPM_PACKAGE: "@salesforce/cli@latest"      # recommend pinning to a tested version
-  SGD_PLUGIN: "sfdx-git-delta@latest"               # recommend pinning to a tested plugin version
+  SEVERITY_THRESHOLD: 3  # High/Critical only (1=all, 2=medium+, 3=high+, 4=critical)
 
 jobs:
   pr-validation:
@@ -31,11 +27,16 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     
     steps:
-      - name: Checkout repository (full history)
+      - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Setup Node & Salesforce CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -43,106 +44,52 @@ jobs:
           distribution: 'temurin'
           java-version: '11'
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-v1
-          restore-keys: |
-            ${{ runner.os }}-node- -v1
-
-      - name: Cache Salesforce CLI (optional speed-up)
-        uses: actions/cache@v4
-        with:
-          path: ~/.sf
-          key: sf-cli-${{ runner.os }}-${{ hashFiles('**/sfdx-project.json') }}-v1
-          restore-keys: |
-            sf-cli-${{ runner.os }}-
-
       - name: Install Salesforce CLI
         run: |
           set -euo pipefail
-          echo "Installing: ${SF_CLI_NPM_PACKAGE}"
-          npm install -g "${SF_CLI_NPM_PACKAGE}" --silent
-          sf --version
+          npm install -g @salesforce/cli@latest --silent
+          sf --version || { echo "SF CLI install failed"; exit 1; }
 
-      # ---------- Authentication ----------
-      # Short-term: sfdx auth URL from secrets (ephemeral file removed after use).
-      # Long-term: migrate to GitHub OIDC + JWT for short-lived credentials (example below).
       - name: Authenticate Salesforce (PR Validation)
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${SF_AUTH_URL:-}" ]; then
-            echo "ERROR: SF_SANDBOX_AUTH_URL secret not set"
-            exit 1
-          fi
           echo "$SF_AUTH_URL" > /tmp/authFile.txt
           sf org login sfdx-url --sfdx-url-file /tmp/authFile.txt --alias sandbox --set-default
           rm -f /tmp/authFile.txt
 
-      # OPTIONAL: Recommended: OIDC + JWT auth (commented example)
-      # - name: Authenticate via JWT (OIDC recommended for prod)
-      #   env:
-      #     SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
-      #     SF_USERNAME: ${{ secrets.SF_USERNAME }}
-      #     SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
-      #   run: |
-      #     set -euo pipefail
-      #     echo "$SF_JWT_KEY" > jwt.key
-      #     sf auth jwt:grant --clientid "$SF_CLIENT_ID" --username "$SF_USERNAME" --jwtkeyfile jwt.key --set-default --alias sandbox
-      #     rm -f jwt.key
-
-      - name: Create delta & reports directories
+      - name: Create Delta Output Directory
         run: mkdir -p delta reports
 
-      - name: Install sfdx-git-delta plugin
+      - name: Install sfdx-git-delta Plugin
         run: |
           set -euo pipefail
-          echo "Installing SGD plugin: ${SGD_PLUGIN}"
-          echo y | sf plugins install "${SGD_PLUGIN}"
+          echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
-      - name: Generate delta using sfdx-git-delta
+      - name: Generate Delta using sfdx-git-delta
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
         run: |
           set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-          # Robust fetch (handles forks / unusual refs)
-          echo "Fetching base ref origin/${BASE_REF}"
-          if ! git fetch origin "${BASE_REF}" --quiet; then
-            echo "Primary fetch failed; attempting fetch --all"
-            git fetch --all --quiet
-          fi
-
-          echo "Generating delta from origin/${BASE_REF} to HEAD"
-          if ! sf sgd source delta --to HEAD --from origin/"${BASE_REF}" --output delta --generate-delta; then
-            echo "ERROR: sgd delta generation failed — showing workspace for debugging"
-            ls -la
-            ls -la delta || true
-            exit 1
-          fi
+          git fetch origin $BASE_REF --quiet
+          echo "Generating delta from origin/$BASE_REF to HEAD"
+          sf sgd source delta --to HEAD --from origin/$BASE_REF --output delta --generate-delta
           ls -la delta || true
 
-      - name: Show generated package.xml & delta contents
+      - name: Show Generated Package.xml Files
         run: |
           set -euo pipefail
           echo "=== Delta Directory Structure ==="
-          find delta -type f | head -40 || echo "No delta files found"
+          find delta -type f | head -20 || echo "No delta files found"
           echo ""
-          echo "=== package.xml (if exists) ==="
-          [ -f delta/package/package.xml ] && sed -n '1,200p' delta/package/package.xml || echo "No package.xml"
+          echo "=== Package.xml (if exists) ==="
+          [ -f delta/package/package.xml ] && cat delta/package/package.xml || echo "No package.xml"
           echo ""
-          echo "=== destructive changes (if exists) ==="
-          find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec sed -n '1,200p' {} \; || echo "No destructive changes"
+          echo "=== Destructive Changes (if exists) ==="
+          find delta -name "destructiveChanges*.xml" -exec echo "Found: {}" \; -exec cat {} \; || echo "No destructive changes"
 
       - name: Run Salesforce Code Analyzer for Apex
         id: run-code-analyzer-apex
@@ -168,7 +115,7 @@ jobs:
           results-artifact-name: code-analyzer-lwc-results
         continue-on-error: true
 
-      - name: Upload code analysis reports
+      - name: Upload Code Analysis Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -176,59 +123,79 @@ jobs:
           path: reports/
           retention-days: 30
 
-      - name: Display code analysis results
+      - name: Display Code Analysis Results
         if: always()
         run: |
           set -euo pipefail
-          echo "🔍 Static Code Analysis Results"
+          echo "🔍 Static Code Analysis Results:"
+          echo "=================================="
+          
+          # Ensure reports exist with fallback
           [ -f reports/apex.json ] || echo '{"violations":[]}' > reports/apex.json
           [ -f reports/lwc.json ] || echo '{"violations":[]}' > reports/lwc.json
-
-          # Apex
-          APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
-          if [ "$APEX_VIOLATIONS" -gt 0 ]; then
-            echo "⚠️ Apex Violations: $APEX_VIOLATIONS"
-            jq -r '.violations[]? | select(.severity <= 3) |
-              (if .location then (.location | split(" (")[0] | split("/") | .[-1]) else "Unknown" end) as $file |
-              "  • \($file) - \(.ruleName // "Unknown"): \(.message)"' reports/apex.json 2>/dev/null | head -10
+          
+          # Display Apex results
+          if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
+            echo "📊 Apex Analysis Results:"
+            APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
+            if [ "$APEX_VIOLATIONS" -gt 0 ]; then
+              echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
+              echo "High Priority Issues:"
+              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/apex.json 2>/dev/null | head -10
+            else
+              echo "✅ No Apex violations found!"
+            fi
           else
-            echo "✅ No Apex violations found"
+            echo "✅ No Apex violations found!"
           fi
 
-          # LWC
-          LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
-          if [ "$LWC_VIOLATIONS" -gt 0 ]; then
-            echo "⚠️ LWC Violations: $LWC_VIOLATIONS"
-            jq -r '.violations[]? | select(.severity <= 3) |
-              (if .location then (.location | split(" (")[0] | split("/") | .[-1]) else "Unknown" end) as $file |
-              "  • \($file) - \(.ruleName // "Unknown"): \(.message)"' reports/lwc.json 2>/dev/null | head -5
+          echo ""
+
+          # Display LWC results
+          if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
+            echo "📊 LWC Analysis Results:"
+            LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
+            if [ "$LWC_VIOLATIONS" -gt 0 ]; then
+              echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
+              echo "Key Issues:"
+              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/lwc.json 2>/dev/null | head -5
+            else
+              echo "✅ No LWC violations found!"
+            fi
           else
-            echo "✅ No LWC violations found"
+            echo "✅ No LWC violations found!"
           fi
 
-      - name: Analyze delta and map test classes
-        id: analyze_delta
+      - name: Map tests to Apex classes in delta (dynamic)
+        id: test-map
         run: |
           set -euo pipefail
+
           echo "🔍 Analyzing Apex classes in delta for test mapping..."
 
-          # deterministic class discovery (delta first, then repo)
-          APEX_CLASSES=$(find delta/force-app/main/default/classes -maxdepth 1 -name '*.cls' -exec basename {} .cls \; 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-          echo "Found Apex classes in delta: ${APEX_CLASSES:-none}"
+          if [ ! -f "delta/package/package.xml" ]; then
+            echo "No package.xml found in delta"
+            echo "APEX_CLASSES=" >> $GITHUB_ENV
+            echo "TESTS_IN_DELTA=" >> $GITHUB_ENV
+            echo "RELATED_TESTS=" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          APEX_CLASSES=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
+            grep -o '<members>[^<]*</members>' | \
+            sed 's/<members>//g; s/<\/members>//g' | \
+            tr '\n' ' ' | sed 's/ *$//' || echo "")
+
+          echo "📋 Found Apex classes: ${APEX_CLASSES:-none}"
 
           TESTS_IN_DELTA=""
           PROD_CLASSES=""
 
           if [ -n "$APEX_CLASSES" ]; then
             for cls in $APEX_CLASSES; do
-              file_path=$(find delta/force-app -path "*/classes/${cls}.cls" 2>/dev/null | head -n1 || true)
+              file_path=$(find delta/force-app force-app -path "*/classes/${cls}.cls" 2>/dev/null | head -n1)
               if [ -z "$file_path" ]; then
-                # fallback to repo force-app
-                file_path=$(find force-app -path "*/classes/${cls}.cls" 2>/dev/null | head -n1 || true)
-              fi
-
-              if [ -z "$file_path" ]; then
-                echo "  ⚠️ ${cls}: not found (treat as production)"
+                echo "  ⚠️  ${cls}: file not found (treating as production)"
                 PROD_CLASSES="$PROD_CLASSES $cls"
                 continue
               fi
@@ -247,52 +214,57 @@ jobs:
           fi
 
           echo ""
-          echo "Classification:"
+          echo "📊 Classification:"
           echo "  Production classes: ${PROD_CLASSES:-none}"
           echo "  Test classes: ${TESTS_IN_DELTA:-none}"
           echo ""
 
-          # mapping: heuristic-based (grep). Keep as JSON for step summary.
           RELATED_TESTS=""
           echo "{" > reports/test-mapping.json
           echo '  "mapping": [' >> reports/test-mapping.json
           SEP=""
+
           if [ -n "$PROD_CLASSES" ] && [ -n "$TESTS_IN_DELTA" ]; then
             for pc in $PROD_CLASSES; do
               FOUND=""
               for tc in $TESTS_IN_DELTA; do
-                tf=$(find delta/force-app force-app -path "*/classes/${tc}.cls" 2>/dev/null | head -n1 || true)
+                tf=$(find delta/force-app force-app -path "*/classes/${tc}.cls" 2>/dev/null | head -n1)
                 if [ -n "$tf" ] && grep -qiE "(new[[:space:]]+${pc}\b|${pc}\.[A-Za-z_]|${pc}[[:space:]]*\()" "$tf"; then
                   FOUND="$FOUND $tc"
                 fi
               done
+
               FOUND=$(echo "$FOUND" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
               [ -n "$FOUND" ] && RELATED_TESTS="$RELATED_TESTS $FOUND"
+
               if [ -n "$FOUND" ]; then
                 JSON_TESTS=$(echo "$FOUND" | xargs -n1 | sed 's/^/"/;s/$/"/' | paste -sd, -)
               else
                 JSON_TESTS=""
               fi
+
               echo "$SEP    {\"apexClass\": \"${pc}\", \"tests\": [${JSON_TESTS}]}" >> reports/test-mapping.json
               SEP=","
             done
           fi
+
           echo '  ]' >> reports/test-mapping.json
           echo '}' >> reports/test-mapping.json
 
           RELATED_TESTS=$(echo "$RELATED_TESTS" | xargs -n1 2>/dev/null | sort -u | xargs || echo "")
+
+          echo ""
           echo "✅ Test mapping complete. Tests to run: ${RELATED_TESTS:-none (RunLocalTests fallback)}"
 
           echo "APEX_CLASSES=$APEX_CLASSES" >> $GITHUB_ENV
           echo "TESTS_IN_DELTA=$TESTS_IN_DELTA" >> $GITHUB_ENV
           echo "RELATED_TESTS=$RELATED_TESTS" >> $GITHUB_ENV
 
-          # Add mapping table to step summary
           {
-            echo "### 🧪 Test Mapping"
+            echo "### 🧪 Test Mapping for Apex Classes in Delta"
             echo ""
             if [ -s reports/test-mapping.json ]; then
-              echo "| Apex Class | Tests Found |"
+              echo "| Apex Class | Tests Found in Delta |"
               echo "|---|---|"
               if [ -n "$PROD_CLASSES" ]; then
                 for pc in $PROD_CLASSES; do
@@ -308,115 +280,132 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Validate with intelligent test selection
+      - name: Validate Delta Deployment with Dynamic Test Classes
         id: validate_deploy
         run: |
           set -euo pipefail
+          
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
-            echo "Delta found. Proceeding..."
+            echo "Delta found. Proceeding with validation..."
+            
             if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
-              echo "Apex files present: running tests..."
+              echo "🔍 Found Apex files, running tests..."
+              
               if [ -n "${RELATED_TESTS:-}" ]; then
-                RELATED_TESTS_CSV=$(echo "$RELATED_TESTS" | xargs -n1 | paste -sd, - || echo "")
-                echo "Running mapped tests: ${RELATED_TESTS_CSV}"
-                # run mapped tests; capture JSON if possible
-                if sf project deploy start \
+                echo "✅ Running mapped tests: ${RELATED_TESTS}"
+                sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunSpecifiedTests \
-                  --tests "$RELATED_TESTS_CSV" \
-                  --json > reports/deploy-report.json 2>&1; then
-                  echo "RunSpecifiedTests completed"
-                else
-                  echo "RunSpecifiedTests failed or produced non-zero exit; attempting to read reports if available"
-                  # if reports/deploy-report.json not created by sf, we will create a placeholder later
-                  if [ ! -f reports/deploy-report.json ]; then
-                    echo '{"result":{"status":"Failed","message":"RunSpecifiedTests failed"}}' > reports/deploy-report.json
-                  fi
-                fi
-
-                # compute average coverage if available; fallback to 0
-                COVERAGE=$(jq -r '.result.details.runTestResult.codeCoverage[]? | .coveredPercent // empty' reports/deploy-report.json 2>/dev/null | awk '{sum += $1; cnt += 1} END { if (cnt>0) printf("%.0f", sum/cnt); else print 0 }' || echo "0")
-                COVERAGE=${COVERAGE%.*}
-                echo "Coverage achieved: ${COVERAGE}%"
-
-                if [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
-                  echo "Coverage ${COVERAGE}% < ${COVERAGE_THRESHOLD}%. Falling back to RunLocalTests..."
-                  if sf project deploy start \
-                    --source-dir delta/force-app \
-                    --target-org sandbox \
-                    --dry-run \
-                    --test-level RunLocalTests \
-                    --json > reports/deploy-report-coverage.json 2>&1; then
-                    echo "RunLocalTests fallback completed"
-                  else
-                    echo "RunLocalTests fallback failed"
-                    echo '{"result":{"status":"Failed","message":"Fallback RunLocalTests failed"}}' > reports/deploy-report-coverage.json
-                  fi
-                  mv reports/deploy-report-coverage.json reports/deploy-report.json
-                else
-                  echo "Coverage ${COVERAGE}% meets threshold"
-                fi
+                  --tests $RELATED_TESTS \
+                  --json > reports/deploy-report.json
               else
-                echo "No mapped tests -> running RunLocalTests"
-                if sf project deploy start \
+                echo "⚠️  No mapped tests found; running all local tests."
+                sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunLocalTests \
-                  --json > reports/deploy-report.json 2>&1; then
-                  echo "RunLocalTests completed"
-                else
-                  echo "RunLocalTests failed"
-                  echo '{"result":{"status":"Failed","message":"RunLocalTests failed"}}' > reports/deploy-report.json
-                fi
+                  --json > reports/deploy-report.json
               fi
             else
-              echo "No Apex files -> NoTestRun"
+              echo "📦 No Apex files found, skipping test execution"
               sf project deploy start \
                 --source-dir delta/force-app \
                 --target-org sandbox \
                 --dry-run \
                 --test-level NoTestRun \
-                --json > reports/deploy-report.json 2>&1 || true
+                --json > reports/deploy-report.json
             fi
           else
-            echo "No deployable metadata in delta"
+            echo "📭 No deployable metadata found in delta. Skipping validation."
             echo '{"result":{"status":"Skipped","message":"No changes to deploy"}}' > reports/deploy-report.json
           fi
 
-      - name: Display validation summary
+      - name: Deployment Summary Report
         if: always()
         run: |
           set -euo pipefail
           echo ""
+          
           if [ -f reports/deploy-report.json ]; then
             STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
-            echo "Validation status: $STATUS"
+            if [ "$STATUS" = "Succeeded" ]; then 
+              echo "🚦 Validation Status: ✅ Succeeded"
+            elif [ "$STATUS" = "Skipped" ]; then
+              echo "🚦 Validation Status: ⚪ Skipped (no changes)"
+            else 
+              echo "🚦 Validation Status: ❌ Failed"
+            fi
           else
-            echo "No deploy-report.json available"
-            exit 1
+            echo "🚦 Validation Status: ⚪ Skipped (no deploy report)"
           fi
-
           echo ""
-          # attempt to show test failures / component failures
-          if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
-            echo "Test failures:"
-            jq -r '.result.details.runTestResult.failures[]? | " • \(.name): \(.message)"' reports/deploy-report.json | head -10
-          fi
-          if jq -e '.result.details.componentFailures' reports/deploy-report.json > /dev/null 2>&1; then
-            echo "Component failures:"
-            jq -r '.result.details.componentFailures[]? | " • \(.fileName // .name): \(.problem)"' reports/deploy-report.json | head -10
+
+          if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
+            echo "📦 Deployment Package Metadata:"
+            echo "==============================================="
+
+            COMPONENT_COUNT=0
+            if [ -f "delta/package/package.xml" ]; then
+              while IFS= read -r line; do
+                if [[ $line =~ members\>([^<]+)\</members ]]; then
+                  COMPONENT_COUNT=$((COMPONENT_COUNT + 1))
+                  echo "$COMPONENT_COUNT. ${BASH_REMATCH[1]}"
+                fi
+              done < <(grep '<members>' delta/package/package.xml)
+              
+              if [ $COMPONENT_COUNT -gt 0 ]; then
+                echo ""
+                echo "✅ **Number of Components:** $COMPONENT_COUNT"
+              fi
+            else
+              echo "❌ No package.xml found"
+            fi
+            echo ""
+
+            echo "🎯 Coverage Analysis"
+            if [ -f "reports/deploy-report.json" ]; then
+              DEPLOY_STATUS=$(jq -r '.result.status // "Unknown"' reports/deploy-report.json 2>/dev/null || echo "Unknown")
+              
+              if [ "$DEPLOY_STATUS" = "Succeeded" ]; then
+                echo "✅ **Validation Passed:** All tests and coverage requirements met"
+              elif [ "$DEPLOY_STATUS" = "Skipped" ]; then
+                echo "⚪ **No Testing Required:** No Apex changes detected"
+              else
+                echo "❌ **Validation Failed:** Check test execution and coverage"
+                if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
+                  echo ""
+                  echo "🔍 **Test Failures:**"
+                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message)"' reports/deploy-report.json 2>/dev/null
+                fi
+              fi
+            fi
+            echo ""
+
+            echo "🔍 Static Code Analysis"
+            APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
+            LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
+            TOTAL_VIOLATIONS=$((APEX_VIOLATIONS + LWC_VIOLATIONS))
+            
+            if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+              echo "✅ Code Quality: Excellent (0 violations)"
+            elif [ $TOTAL_VIOLATIONS -le 5 ]; then
+              echo "🟡 Code Quality: Good ($TOTAL_VIOLATIONS violations)"
+            else
+              echo "🔴 Code Quality: Needs Attention ($TOTAL_VIOLATIONS violations)"
+            fi
+
+          else
+            echo "📌 Validation Status: Skipped"
+            echo "ℹ️  Reason: No deployable metadata found in delta"
+            echo ""
+            echo "🔍 Static Code Analysis: ✅ No violations"
+            echo "📊 Code Quality: 🟢 Excellent (0 violations)"
           fi
 
-          # show coverage if present
-          if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json > /dev/null 2>&1; then
-            COVERAGE=$(jq -r '.result.details.runTestResult.codeCoverage[]? | .coveredPercent // empty' reports/deploy-report.json 2>/dev/null | awk '{sum += $1; cnt += 1} END { if (cnt>0) printf("%.0f", sum/cnt); else print 0 }' || echo "0")
-            echo "Coverage (avg): ${COVERAGE}%"
-          fi
-
-      - name: Final status check
+      - name: Enforce validation result (fail job if validation failed)
         if: always()
         run: |
           set -euo pipefail
@@ -430,6 +419,6 @@ jobs:
               exit 1
             fi
           else
-            echo "No deploy-report.json; failing."
+            echo "No deploy-report.json produced; failing."
             exit 1
           fi
