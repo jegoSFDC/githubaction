@@ -166,7 +166,7 @@ jobs:
         run: |
           echo "🔍 Analyzing Apex classes in delta for test mapping..."
           
-          # **FIXED: Only extract actual .cls files from delta, not from package.xml**
+          # Only extract actual .cls files from delta
           APEX_CLASSES=$(find delta/force-app/main/default/classes -name '*.cls' -maxdepth 1 -exec basename {} .cls \; | tr '\n' ' ' | sed 's/ *$//')
           
           echo "📋 Found Apex classes in delta: ${APEX_CLASSES:-none}"
@@ -202,7 +202,7 @@ jobs:
           echo "  Test classes: ${TESTS_IN_DELTA:-none}"
           echo ""
           
-          # **IMPROVED: Map production classes to their test classes**
+          # Map production classes to their test classes
           RELATED_TESTS=""
           echo "{" > reports/test-mapping.json
           echo '  "mapping": [' >> reports/test-mapping.json
@@ -286,7 +286,7 @@ jobs:
                 # compute coverage if available
                 COVERAGE=0
                 if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
-                  COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
+                  COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
                   COVERAGE=${COVERAGE%.*}
                   summary "Coverage from mapped-tests run: ${COVERAGE}%"
                 fi
@@ -354,7 +354,7 @@ jobs:
           fi
           COVERAGE=0
           if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
-            COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
+            COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
             COVERAGE=${COVERAGE%.*}
           fi
 
@@ -375,15 +375,46 @@ jobs:
           echo "  • Coverage: ${COVERAGE}% (threshold: ${COVERAGE_THRESHOLD}%)"
           if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ] || [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
             echo "⚠️  Validation issues detected. See reports/deploy-report.json and reports/validation-summary.txt for details."
-            # print a couple of example failing items to aid triage
-            if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ]; then
-              echo "  • Example component failures:"
-              jq -r '.result.details.componentFailures[]? | "    - \(.fileName // .name): \(.problem)"' reports/deploy-report.json 2>/dev/null | head -5 || true
+
+            # === PRINT ACTUAL TEST FAILURES (exact lines) ===
+            if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json >/dev/null 2>&1; then
+              echo ""
+              echo "🧪 Test Failures (full details):"
+              # Print exact failure lines; sanitize HTML <br> to newline for readability
+              jq -r '.result.details.runTestResult.failures[]? |
+                ("\(.name): \(.message) (Method: \(.methodName // "unknown"))" )' reports/deploy-report.json 2>/dev/null | sed 's/<br>/\\n/g' | sed 's/\\n/\
+/g' || true
             fi
-            if [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
-              echo "  • Example test failures:"
-              jq -r '.result.details.runTestResult.failures[]? | "    - \(.name): \(.message) (\(.methodName))"' reports/deploy-report.json 2>/dev/null | head -5 || true
+
+            # === PRINT ACTUAL COMPONENT FAILURES (exact lines) ===
+            if jq -e '.result.details.componentFailures' reports/deploy-report.json >/dev/null 2>&1; then
+              echo ""
+              echo "🔧 Component Failures (full details):"
+              jq -r '.result.details.componentFailures[]? |
+                "  - \(.fileName // .name): \(.problem) (\(.problemType // "Unknown"))"' reports/deploy-report.json 2>/dev/null | head -20 || true
             fi
+
+            # === PRINT PROBLEMATIC componentSuccesses (only items with a non-empty problem and not just Info) ===
+            if jq -e '.result.details.componentSuccesses' reports/deploy-report.json >/dev/null 2>&1; then
+              PROBLEMS=$(jq -r '.result.details.componentSuccesses[]? |
+                select((.problem != null and (.problem|tostring) != "" ) and (.problemType // "") != "Info") |
+                "  - \(.fileName // .fullName // "unknown"): \(.problem) (\(.problemType // "Unknown"))"' reports/deploy-report.json 2>/dev/null || echo "")
+              if [ -n "$PROBLEMS" ]; then
+                echo ""
+                echo "⚠️ Problematic component messages:"
+                echo "$PROBLEMS"
+              fi
+            fi
+
+            # === PRINT per-class coverage (only numeric values) ===
+            if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+              echo ""
+              echo "📊 Per-class coverage (numeric only):"
+              jq -r '.result.details.runTestResult.codeCoverage[]? |
+                select(.coveredPercent != null) |
+                "  - \(.name): \(.coveredPercent)%"' reports/deploy-report.json 2>/dev/null | head -20 || true
+            fi
+
           else
             echo "✅ Validation looks good."
           fi
@@ -455,66 +486,61 @@ jobs:
               else
                 echo "❌ **Validation Failed:** Check test execution and coverage"
                 echo ""
-                echo "🔍 **Detailed Error Analysis:**"
+                echo "🔍 **Detailed Error Analysis (concise & actionable):**"
                 echo "==============================================="
 
-                # **ENHANCED: Comprehensive error extraction from failed deployments**
                 if [ -f "reports/deploy-report.json" ] && [ -s "reports/deploy-report.json" ]; then
 
-                  # Extract general error message if available
+                  # Print direct error message if present
                   if jq -e '.message' reports/deploy-report.json > /dev/null 2>&1; then
                     echo "💬 **Error Message:**"
                     jq -r '.message' reports/deploy-report.json 2>/dev/null
                     echo ""
                   fi
 
-                  # Extract component failures with more detail
+                  # Component failures (explicit)
                   if jq -e '.result.details.componentFailures' reports/deploy-report.json > /dev/null 2>&1; then
-                    COMPONENT_COUNT=$(jq '.result.details.componentFailures | length' reports/deploy-report.json 2>/dev/null || echo "0")
-                    echo "🔧 **Component Failures (${COMPONENT_COUNT}):**"
-                    jq -r '.result.details.componentFailures[]? | "   • \(.fileName // .name): \(.problem) (\(.problemType))"' reports/deploy-report.json 2>/dev/null
-                    echo ""
-                  fi
-
-                  # Extract test failures with more detail
-                  if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
-                    TEST_FAILURE_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
-                    echo "🧪 **Test Failures (${TEST_FAILURE_COUNT}):**"
-                    jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message) - Method: \(.methodName)"' reports/deploy-report.json 2>/dev/null
-                    echo ""
-                  fi
-
-                  # Extract coverage information even from failed deployments
-                  if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json > /dev/null 2>&1; then
-                    COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | .coveredPercent // 0] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
-                    COVERAGE=${COVERAGE%.*}
-                    echo "📊 **Coverage Achieved:** ${COVERAGE}%"
-                    
-                    # Show per-class coverage for more insight
-                    if jq -e '.result.details.runTestResult.codeCoverage[]? | .name' reports/deploy-report.json > /dev/null 2>&1; then
-                      echo "   **Per-Class Coverage:**"
-                      jq -r '.result.details.runTestResult.codeCoverage[]? | "     • \(.name): \(.coveredPercent)%"' reports/deploy-report.json 2>/dev/null | head -10
-                    fi
-                    echo ""
-                  fi
-
-                  # Extract any other error details
-                  if jq -e '.result.details | length' reports/deploy-report.json > /dev/null 2>&1; then
-                    DETAILS_COUNT=$(jq '.result.details | length' reports/deploy-report.json 2>/dev/null || echo "0")
-                    if [ "$DETAILS_COUNT" -gt 0 ]; then
-                      echo "📋 **Additional Error Details:**"
-                      jq -r '.result.details | select(. != null) | to_entries[] | select(.key != "componentFailures" and .key != "runTestResult") | "   • \(.key): \(.value)"' reports/deploy-report.json 2>/dev/null
+                    CF_COUNT=$(jq '.result.details.componentFailures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+                    if [ "$CF_COUNT" -gt 0 ]; then
+                      echo "🔧 **Component Failures (${CF_COUNT}):**"
+                      jq -r '.result.details.componentFailures[]? | "   • \(.fileName // .name): \(.problem) (\(.problemType // "Unknown"))"' reports/deploy-report.json 2>/dev/null
                       echo ""
                     fi
                   fi
 
-                  # If no specific error details found, show raw output
-                  if ! jq -e '.result.details' reports/deploy-report.json > /dev/null 2>&1; then
-                    echo "ℹ️  **No detailed failure information available in deploy report**"
-                    echo ""
-                    echo "🔍 **Raw Error Output:**"
-                    jq -r '.' reports/deploy-report.json 2>/dev/null || echo "Could not parse JSON output"
-                    echo ""
+                  # Test failures (explicit, exact lines)
+                  if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
+                    TF_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
+                    if [ "$TF_COUNT" -gt 0 ]; then
+                      echo "🧪 **Test Failures (${TF_COUNT}):**"
+                      jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message) - Method: \(.methodName // "unknown")"' reports/deploy-report.json 2>/dev/null
+                      echo ""
+                    fi
+                  fi
+
+                  # Per-class numeric coverage
+                  if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json > /dev/null 2>&1; then
+                    echo "📊 **Coverage Achieved (average):**"
+                    AVG=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
+                    AVG=${AVG%.*}
+                    echo "   • ${AVG}%"
+                    if jq -e '.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent != null)' reports/deploy-report.json > /dev/null 2>&1; then
+                      echo "   **Per-Class (numeric only):**"
+                      jq -r '.result.details.runTestResult.codeCoverage[]? | select(.coveredPercent != null) | "     • \(.name): \(.coveredPercent)%"' reports/deploy-report.json 2>/dev/null | head -10
+                      echo ""
+                    fi
+                  fi
+
+                  # Show only problematic componentSuccesses (if any)
+                  if jq -e '.result.details.componentSuccesses' reports/deploy-report.json > /dev/null 2>&1; then
+                    PROB=$(jq -r '.result.details.componentSuccesses[]? |
+                      select((.problem != null and (.problem|tostring) != "") and (.problemType // "") != "Info") |
+                      "   • \(.fileName // .fullName // "unknown"): \(.problem) (\(.problemType // "Unknown"))"' reports/deploy-report.json 2>/dev/null || echo "")
+                    if [ -n "$PROB" ]; then
+                      echo "⚠️ **Component notes / warnings:**"
+                      echo "$PROB"
+                      echo ""
+                    fi
                   fi
 
                 else
@@ -571,4 +597,34 @@ jobs:
             TEST_FAIL_COUNT=$(jq '.result.details.runTestResult.failures | length' reports/deploy-report.json 2>/dev/null || echo "0")
           fi
           COVERAGE=0
-          if jq -e '.result.details.runTestResult.codeCoverage' reports/de
+          if jq -e '.result.details.runTestResult.codeCoverage' reports/deploy-report.json >/dev/null 2>&1; then
+            COVERAGE=$(jq -r '[.result.details.runTestResult.codeCoverage[]? | (.coveredPercent // 0)] | (if length>0 then (add/length) else 0 end)' reports/deploy-report.json 2>/dev/null || echo "0")
+            COVERAGE=${COVERAGE%.*}
+          fi
+
+          echo "  • Status: ${STATUS}"
+          echo "  • Component failures: ${COMPONENT_FAIL_COUNT}"
+          echo "  • Test failures: ${TEST_FAIL_COUNT}"
+          echo "  • Coverage: ${COVERAGE}% (threshold: ${COVERAGE_THRESHOLD}%)"
+
+          # Allowed statuses: Succeeded, Skipped
+          if [ "$STATUS" = "Succeeded" ] || [ "$STATUS" = "Skipped" ]; then
+            # but still enforce coverage threshold when there were Apex tests run (Skipped implies no apex changes -> allow)
+            if [ "$STATUS" = "Succeeded" ] && jq -e '.result.details.runTestResult' reports/deploy-report.json >/dev/null 2>&1; then
+              if [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
+                echo "❌ Coverage ${COVERAGE}% is below threshold ${COVERAGE_THRESHOLD}%. Failing the job."
+                exit 1
+              fi
+            fi
+
+            if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ]; then
+              echo "❌ Component or test failures present despite overall Succeeded/Skipped status. Failing the job."
+              exit 1
+            fi
+
+            echo "✅ Validation passed enforcement checks."
+            exit 0
+          else
+            echo "❌ Validation status is '${STATUS}' — failing the job."
+            exit 1
+          fi
