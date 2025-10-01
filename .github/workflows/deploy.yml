@@ -8,6 +8,11 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  checks: write
+  actions: read
+
 env:
   SEVERITY_THRESHOLD: 3  # High/Critical only (1=all, 2=medium+, 3=high+, 4=critical)
 
@@ -15,13 +20,18 @@ jobs:
   pr-validation:
     name: PR Validation
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    concurrency:
+      group: pr-validation-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 60
+    if: ${{ github.event_name == 'pull_request' }}
     
     steps:
       - name: Checkout Repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -33,43 +43,59 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
 
-      - name: Cache Salesforce CLI
+      - name: Cache npm global packages
         uses: actions/cache@v4
         with:
-          path: ~/.sf
-          key: sf-cli-${{ runner.os }}-${{ hashFiles('**/sfdx-project.json') }}
+          path: ~/.npm
+          key: npm-global-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            sf-cli-${{ runner.os }}-
+            npm-global-${{ runner.os }}-
 
       - name: Install Salesforce CLI
         run: |
-          npm install -g @salesforce/cli --silent
-          sf --version
+          set -euo pipefail
+          npm install -g @salesforce/cli@latest --silent
+          sf --version || { echo "SF CLI install failed"; exit 1; }
 
       - name: Authenticate Salesforce (PR Validation)
         env:
           SF_AUTH_URL: ${{ secrets.SF_SANDBOX_AUTH_URL }}
         run: |
-          echo "$SF_AUTH_URL" > authFile.txt
-          sf org login sfdx-url --sfdx-url-file authFile.txt --alias sandbox --set-default
+          set -euo pipefail
+          echo "$SF_AUTH_URL" > /tmp/authFile.txt
+          sf org login sfdx-url --sfdx-url-file /tmp/authFile.txt --alias sandbox --set-default
+          rm -f /tmp/authFile.txt
+
+      - name: Install required tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y xmlstarlet jq
 
       - name: Create Delta Output Directory
         run: mkdir -p delta reports
 
       - name: Install sfdx-git-delta Plugin
         run: |
+          set -euo pipefail
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
       - name: Generate Delta using sfdx-git-delta
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
+          set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch origin main --quiet
-          sf sgd source delta --to HEAD --from origin/main --output delta --generate-delta
+          git fetch origin "$BASE_REF" --quiet
+          sf sgd source delta --to HEAD --from origin/"$BASE_REF" --output delta --generate-delta
 
       - name: Show Generated Package.xml Files
         run: |
+          set -euo pipefail
           echo "=== Delta Directory Structure ==="
           find delta -type f | head -20 || echo "No delta files found"
           echo ""
@@ -111,9 +137,18 @@ jobs:
           path: reports/
           retention-days: 30
 
+      - name: Upload Delta for Debugging
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: delta-debug
+          path: delta/
+          retention-days: 7
+
       - name: Display Code Analysis Results
         if: always()
         run: |
+          set -euo pipefail
           echo "🔍 Static Code Analysis Results:"
           echo "=================================="
           
@@ -122,12 +157,12 @@ jobs:
             echo "📊 Apex Analysis Results:"
             
             # Use correct JSON path for violations count
-            APEX_VIOLATIONS=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
+            APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
             
             if [ "$APEX_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               echo "High Priority Issues:"
-              cat reports/apex.json | jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -10 || \
+              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/apex.json 2>/dev/null | head -10 || \
               echo "Check reports/apex.json for details"
             else
               echo "✅ No Apex violations found!"
@@ -143,12 +178,12 @@ jobs:
             echo "📊 LWC Analysis Results:"
             
             # Use correct JSON path for violations count
-            LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
+            LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
             
             if [ "$LWC_VIOLATIONS" -gt 0 ]; then
               echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               echo "Key Issues:"
-              cat reports/lwc.json | jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' 2>/dev/null | head -5 || \
+              jq -r '.violations[]? | select(.severity <= 3) | "  • \(.fileName // .file) - \(.ruleName): \(.message)"' reports/lwc.json 2>/dev/null | head -5 || \
               echo "Check reports/lwc.json for details"
             else
               echo "✅ No LWC violations found!"
@@ -157,9 +192,31 @@ jobs:
             echo "✅ No LWC violations found!"
           fi
 
+      - name: Extract Metadata Components
+        id: extract-metadata
+        run: |
+          set -euo pipefail
+          
+          # Use xmlstarlet for robust XML parsing
+          if [ -f "delta/package/package.xml" ]; then
+            APEX_CLASSES=$(xmlstarlet sel -t -m "//types[name='ApexClass']/members" -v . -n delta/package/package.xml 2>/dev/null | grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+            DEPLOYED_TESTS=$(xmlstarlet sel -t -m "//types[name='ApexClass']/members" -v . -n delta/package/package.xml 2>/dev/null | grep -E 'Test$|test$' | tr '\n' ',' | sed 's/,$//')
+            
+            echo "apex_classes=$APEX_CLASSES" >> $GITHUB_OUTPUT
+            echo "deployed_tests=$DEPLOYED_TESTS" >> $GITHUB_OUTPUT
+            echo "📋 APEX CLASSES TO DEPLOY: '$APEX_CLASSES'"
+            echo "🧪 TEST CLASSES TO RUN: '$DEPLOYED_TESTS'"
+          else
+            echo "apex_classes=" >> $GITHUB_OUTPUT
+            echo "deployed_tests=" >> $GITHUB_OUTPUT
+            echo "❌ No package.xml found"
+          fi
+
       - name: Validate with Test Selection
         id: validate_deploy
         run: |
+          set -euo pipefail
+          
           if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f | wc -l)" -gt 0 ]; then
             echo "Analyzing delta for specified test execution..."
             
@@ -167,22 +224,13 @@ jobs:
             if find delta/force-app -name "*.cls" -o -name "*.trigger" | grep -q .; then
               echo "🔍 Found Apex files, analyzing deployment package..."
               
-              # Get ONLY ApexClass members from package.xml (more precise)
-              APEX_CLASSES=$(grep -A 50 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
-                grep -o '<members>[^<]*</members>' | \
-                sed 's/<members>//g; s/<\/members>//g' | \
-                grep -v -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+              APEX_CLASSES="${{ steps.extract-metadata.outputs.apex_classes }}"
+              DEPLOYED_TESTS="${{ steps.extract-metadata.outputs.deployed_tests }}"
               
-              # Get ONLY test classes
-              DEPLOYED_TESTS=$(grep -A 50 '<name>ApexClass</name>' delta/package/package.xml 2>/dev/null | \
-                grep -o '<members>[^<]*</members>' | \
-                sed 's/<members>//g; s/<\/members>//g' | \
-                grep -E 'Test$|test$' | tr '\n' ' ' | sed 's/ $//')
+              echo "Apex classes found: '$APEX_CLASSES'"
+              echo "Test classes found: '$DEPLOYED_TESTS'"
               
-              echo "📋 APEX CLASSES TO DEPLOY: '$APEX_CLASSES'"
-              echo "🧪 TEST CLASSES TO RUN: '$DEPLOYED_TESTS'"
-              
-              # FIX 1: Better logic for test execution
+              # Determine test level and tests to run
               if [ -n "$APEX_CLASSES" ] && [ -n "$DEPLOYED_TESTS" ]; then
                 echo "🔧 Apex classes being deployed: $APEX_CLASSES"
                 echo "🎯 Available test classes: $DEPLOYED_TESTS"
@@ -191,7 +239,7 @@ jobs:
                 TESTS_TO_RUN=""
                 for class in $APEX_CLASSES; do
                   EXPECTED_TEST="${class}Test"
-                  if echo "$DEPLOYED_TESTS" | grep -q "$EXPECTED_TEST"; then
+                  if echo "$DEPLOYED_TESTS" | tr ',' ' ' | grep -q "$EXPECTED_TEST"; then
                     TESTS_TO_RUN="$TESTS_TO_RUN $EXPECTED_TEST"
                     echo "✅ Found matching test: $EXPECTED_TEST for class: $class"
                   else
@@ -200,36 +248,57 @@ jobs:
                 done
                 
                 if [ -n "$TESTS_TO_RUN" ]; then
-                  echo "🎯 Running specified test classes: $(echo $TESTS_TO_RUN | sed 's/ $//')"
-                  sf project deploy start \
+                  TESTS_CSV=$(echo "$TESTS_TO_RUN" | tr ' ' ',' | sed 's/^,//; s/,$//')
+                  echo "🎯 Running specified test classes: $TESTS_CSV"
+                  
+                  # Capture deploy job ID for detailed reporting
+                  DEPLOY_JSON=$(sf project deploy start \
                     --source-dir delta/force-app \
                     --target-org sandbox \
                     --dry-run \
                     --test-level RunSpecifiedTests \
-                    --tests $(echo $TESTS_TO_RUN | sed 's/ $//')
+                    --tests "$TESTS_CSV" \
+                    --json)
+                  echo "$DEPLOY_JSON" > reports/deploy-start.json
+                  DEPLOY_ID=$(jq -r '.result.id' reports/deploy-start.json)
+                  
+                  # Wait for completion and get detailed report
+                  sf project deploy report --job-id "$DEPLOY_ID" --target-org sandbox --json > reports/deploy-report.json || true
                 else
                   echo "⚠️  No matching tests found for deployed classes, running all local tests"
-                  sf project deploy start \
+                  DEPLOY_JSON=$(sf project deploy start \
                     --source-dir delta/force-app \
                     --target-org sandbox \
                     --dry-run \
-                    --test-level RunLocalTests
+                    --test-level RunLocalTests \
+                    --json)
+                  echo "$DEPLOY_JSON" > reports/deploy-start.json
+                  DEPLOY_ID=$(jq -r '.result.id' reports/deploy-start.json)
+                  sf project deploy report --job-id "$DEPLOY_ID" --target-org sandbox --json > reports/deploy-report.json || true
                 fi
               elif [ -n "$DEPLOYED_TESTS" ]; then
-                echo "🧪 Only test classes being deployed: $DEPLOYED_TESTS"
-                sf project deploy start \
+                TESTS_CSV=$(echo "$DEPLOYED_TESTS" | tr ',' ' ')
+                TESTS_CSV=$(echo "$TESTS_CSV" | tr ' ' ',' | sed 's/^,//; s/,$//')
+                echo "🧪 Only test classes being deployed: $TESTS_CSV"
+                
+                DEPLOY_JSON=$(sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
                   --test-level RunSpecifiedTests \
-                  --tests $DEPLOYED_TESTS
+                  --tests "$TESTS_CSV" \
+                  --json)
+                echo "$DEPLOY_JSON" > reports/deploy-start.json
+                DEPLOY_ID=$(jq -r '.result.id' reports/deploy-start.json)
+                sf project deploy report --job-id "$DEPLOY_ID" --target-org sandbox --json > reports/deploy-report.json || true
               else
                 echo "📦 No Apex classes found, skipping test execution"
                 sf project deploy start \
                   --source-dir delta/force-app \
                   --target-org sandbox \
                   --dry-run \
-                  --test-level NoTestRun
+                  --test-level NoTestRun \
+                  --json > reports/deploy-start.json || true
               fi
             else
               echo "📦 No Apex files found, skipping test execution"
@@ -237,7 +306,8 @@ jobs:
                 --source-dir delta/force-app \
                 --target-org sandbox \
                 --dry-run \
-                --test-level NoTestRun
+                --test-level NoTestRun \
+                --json > reports/deploy-start.json || true
             fi
           else
             echo "📭 No deployable metadata found in delta. Skipping validation."
@@ -246,6 +316,7 @@ jobs:
       - name: Deployment Summary Report
         if: always()
         run: |
+          set -euo pipefail
           echo ""
           echo "🚦 Validation Status: ${{ steps.validate_deploy.outcome == 'success' && '✅ Succeeded' || '❌ Failed' }}"
           echo ""
@@ -283,25 +354,34 @@ jobs:
             fi
             echo ""
             
-            # Enhanced Coverage Analysis
+            # Enhanced Coverage Analysis from deploy report
             echo "🎯 Coverage Analysis"
-            if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-              echo "❌ **Coverage Issue Details:**"
-              echo "   • Overall Coverage: Below 75% requirement"
-              echo "   • Specific Problem: Insufficient test coverage for deployed classes"
-              echo "   • Action Required: Add more test methods or improve existing tests"
-              echo ""
+            if [ -f "reports/deploy-report.json" ]; then
+              DEPLOY_STATUS=$(jq -r '.result.status // "Unknown"' reports/deploy-report.json 2>/dev/null || echo "Unknown")
+              COVERAGE=$(jq -r '.result.details.testCoveragePercent // 0' reports/deploy-report.json 2>/dev/null || echo "0")
               
-              # Show specific test failures
-              echo "🔍 **Test Failure Details:**"
-              echo "   • Failing Test: ChangePasswordControllerTest.testChangePassword"
-              echo "   • Error: DUPLICATE_USERNAME - Username already exists in org"
-              echo "   • Solution: Use unique usernames in tests (e.g., with timestamps)"
-              echo ""
+              if [ "$DEPLOY_STATUS" = "Succeeded" ] && [ "$COVERAGE" -ge 75 ]; then
+                echo "✅ **Coverage Met:** $COVERAGE% (Required: 75%)"
+              else
+                echo "❌ **Coverage Issue Details:**"
+                echo "   • Status: $DEPLOY_STATUS"
+                echo "   • Coverage: $COVERAGE% (Required: 75%)"
+                echo "   • Action Required: Add more test methods or improve existing tests"
+                
+                # Show test failures if available
+                if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json > /dev/null 2>&1; then
+                  echo ""
+                  echo "🔍 **Test Failure Details:**"
+                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message)"' reports/deploy-report.json 2>/dev/null || echo "   • Check deploy logs for specific failures"
+                fi
+                echo ""
+              fi
             else
-              echo "✅ **Coverage Met:** All classes meet 75% coverage requirement"
+              echo "❌ **Coverage Issue Details:**"
+              echo "   • Unable to retrieve coverage report"
+              echo "   • Action Required: Check deploy logs above"
+              echo ""
             fi
-            echo ""
             
             # Static Code Analysis Summary - FIXED PARSING
             echo "🔍 Static Code Analysis"
@@ -309,7 +389,7 @@ jobs:
             LWC_VIOLATIONS=0
             
             if [ -f "reports/apex.json" ] && [ -s "reports/apex.json" ]; then
-              APEX_VIOLATIONS=$(cat reports/apex.json | jq '.violations | length' 2>/dev/null || echo "0")
+              APEX_VIOLATIONS=$(jq '.violations | length' reports/apex.json 2>/dev/null || echo "0")
               if [ "$APEX_VIOLATIONS" -gt 0 ]; then
                 echo "⚠️  Apex Violations: $APEX_VIOLATIONS found"
               else
@@ -320,7 +400,7 @@ jobs:
             fi
             
             if [ -f "reports/lwc.json" ] && [ -s "reports/lwc.json" ]; then
-              LWC_VIOLATIONS=$(cat reports/lwc.json | jq '.violations | length' 2>/dev/null || echo "0")
+              LWC_VIOLATIONS=$(jq '.violations | length' reports/lwc.json 2>/dev/null || echo "0")
               if [ "$LWC_VIOLATIONS" -gt 0 ]; then
                 echo "⚠️  LWC Violations: $LWC_VIOLATIONS found"
               else
@@ -342,30 +422,42 @@ jobs:
               echo "Code Quality: 🔴 Needs Attention ($TOTAL_VIOLATIONS violations)"
             fi
             
-            if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-              echo "Deployment: ❌ Failed (tests & coverage issues)"
+            # Final deployment status
+            if [ -f "reports/deploy-report.json" ]; then
+              DEPLOY_STATUS=$(jq -r '.result.status // "Failed"' reports/deploy-report.json 2>/dev/null || echo "Failed")
+              if [ "$DEPLOY_STATUS" = "Succeeded" ]; then
+                echo "Deployment: ✅ Succeeded"
+              else
+                echo "Deployment: ❌ Failed"
+              fi
             else
-              echo "Deployment: ✅ Succeeded"
+              echo "Deployment: ❌ Failed (no deploy report)"
             fi
             echo ""
             
-            # Enhanced Test Results
+            # Enhanced Test Results from deploy report
             echo "🎯 Test Results"
-            if [ "${{ steps.validate_deploy.outcome }}" = "failure" ]; then
-              echo "❌ **Test Execution Failed**"
-              echo "   • Tests Run: 18 total"
-              echo "   • Passed: 17"
-              echo "   • Failed: 1 (ChangePasswordControllerTest.testChangePassword)"
-              echo "   • Coverage: 55% (Required: 75%)"
-              echo ""
-              echo "🔧 **Immediate Actions Required:**"
-              echo "   1. Fix DUPLICATE_USERNAME error in ChangePasswordControllerTest"
-              echo "   2. Add more test coverage for SampleController"
-              echo "   3. Ensure all deployed classes have adequate test coverage"
+            if [ -f "reports/deploy-report.json" ]; then
+              TESTS_RUN=$(jq -r '.result.details.runTestResult.numTestsRun // 0' reports/deploy-report.json 2>/dev/null || echo "0")
+              TESTS_FAILED=$(jq -r '.result.details.runTestResult.numFailures // 0' reports/deploy-report.json 2>/dev/null || echo "0")
+              TESTS_PASSED=$((TESTS_RUN - TESTS_FAILED))
+              
+              if [ "$TESTS_RUN" -gt 0 ]; then
+                echo "✅ **Test Execution Results:**"
+                echo "   • Tests Run: $TESTS_RUN"
+                echo "   • Passed: $TESTS_PASSED"
+                echo "   • Failed: $TESTS_FAILED"
+                
+                if [ "$TESTS_FAILED" -gt 0 ]; then
+                  echo ""
+                  echo "🔧 **Failed Tests:**"
+                  jq -r '.result.details.runTestResult.failures[]? | "   • \(.name): \(.message)"' reports/deploy-report.json 2>/dev/null || echo "   • Check deploy logs for specific failures"
+                fi
+              else
+                echo "❌ No tests were executed"
+              fi
             else
-              echo "✅ **Test Execution Passed**"
-              echo "   • All tests passed"
-              echo "   • Coverage requirement met"
+              echo "❌ Unable to retrieve test results"
             fi
             
           else
