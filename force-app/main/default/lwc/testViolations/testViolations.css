@@ -1,0 +1,16 @@
+/* CSS with potential issues */
+.slds-m-around_medium {
+    background-color: #f3f3f3;
+    padding: 1rem;
+    border-radius: 0.25rem;
+    /* Unused CSS rule */
+    .unused-class {
+        color: red;
+        font-size: 16px;
+    }
+}
+
+/* Duplicate rule */
+.slds-m-around_medium {
+    margin: 1rem;
+}

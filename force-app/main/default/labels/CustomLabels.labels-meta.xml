@@ -28,4 +28,13 @@
         <shortDescription>TestLabel4</shortDescription>
         <value>Test4</value>
     </labels>
+    <labels>
+        <fullName>Test5</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>TestLabel5</shortDescription>
+        <value>Test4</value>
+    </labels>
 </CustomLabels>
+
+<!-- This is  comment -->
