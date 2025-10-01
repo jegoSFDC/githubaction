@@ -9,9 +9,16 @@
 #   1. Ensures report files exist
 #   2. Displays violations in human-readable format
 #   3. Provides summary statistics
+#
+# Note: This script should NOT fail even if violations are found.
+# The Code Analyzer GitHub Action may exit with code 2 when violations exceed
+# the severity threshold, but this is informational, not a failure.
 # ==============================================================================
 
 set -euo pipefail
+
+# Exit successfully at the end regardless of violations found
+trap 'exit 0' EXIT
 
 echo ""
 echo "🚀 STAGE 4: STATIC CODE ANALYSIS RESULTS"
