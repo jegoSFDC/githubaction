@@ -86,8 +86,8 @@ jobs:
       - name: Run Salesforce Code Analyzer for Apex
         id: run-code-analyzer-apex
         uses: forcedotcom/run-code-analyzer@v2
-        if: >-
-          (github.event.head_commit.modified | length) > 0 &&
+        if: |
+          github.event.head_commit.modified != null &&
           (contains(github.event.head_commit.modified, 'ApexClass') ||
            contains(github.event.head_commit.modified, 'ApexTrigger') ||
            contains(github.event.head_commit.added, 'ApexClass') ||
@@ -104,8 +104,8 @@ jobs:
       - name: Run Salesforce Code Analyzer for LWC
         id: run-code-analyzer-lwc
         uses: forcedotcom/run-code-analyzer@v2
-        if: >-
-          (github.event.head_commit.modified | length) > 0 &&
+        if: |
+          github.event.head_commit.modified != null &&
           (contains(github.event.head_commit.modified, 'LightningComponentBundle') ||
            contains(github.event.head_commit.added, 'LightningComponentBundle'))
         with:
