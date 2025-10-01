@@ -40,8 +40,13 @@ execute_validation() {
   local test_classes="${2:-}"
   local report_file="reports/deploy-report.json"
 
+  echo ""
+  echo "⚙️  INITIATING DEPLOYMENT VALIDATION"
+  echo "===================================="
   echo "🔄 Executing deployment validation with test level: $test_level"
+  echo ""
 
+  # Build command for display
   local deploy_cmd="sf project deploy start"
   deploy_cmd="$deploy_cmd --source-dir delta/force-app"
   deploy_cmd="$deploy_cmd --target-org sandbox"
@@ -52,13 +57,78 @@ execute_validation() {
     deploy_cmd="$deploy_cmd --tests $test_classes"
   fi
 
-  deploy_cmd="$deploy_cmd --json"
-
-  if $deploy_cmd > "$report_file" 2>&1; then
+  # Show the command being executed
+  echo "📋 Command: $deploy_cmd"
+  echo ""
+  echo "🔄 Deployment progress (streaming output):"
+  echo "==========================================="
+  
+  # Execute with LIVE output (no --json flag for visibility)
+  local temp_output="/tmp/deploy_live_output.txt"
+  
+  if [ -n "$test_classes" ]; then
+    sf project deploy start \
+      --source-dir delta/force-app \
+      --target-org sandbox \
+      --dry-run \
+      --test-level "$test_level" \
+      --tests "$test_classes" \
+      --json 2>&1 | tee "$temp_output"
+  else
+    sf project deploy start \
+      --source-dir delta/force-app \
+      --target-org sandbox \
+      --dry-run \
+      --test-level "$test_level" \
+      --json 2>&1 | tee "$temp_output"
+  fi
+  
+  local exit_code=$?
+  
+  # Save to report file
+  cat "$temp_output" > "$report_file"
+  
+  echo ""
+  echo "==========================================="
+  echo ""
+  echo "📊 DEPLOYMENT VALIDATION SUMMARY"
+  echo "================================"
+  
+  # Parse and display key metrics from the JSON output
+  if [ -f "$report_file" ]; then
+    local status
+    status=$(jq -r '.result.status // "Unknown"' "$report_file" 2>/dev/null || echo "Unknown")
+    
+    echo "  • Status: $status"
+    
+    if jq -e '.result.details.componentSuccesses' "$report_file" >/dev/null 2>&1; then
+      local success_count
+      success_count=$(jq '.result.details.componentSuccesses | length' "$report_file" 2>/dev/null || echo "0")
+      echo "  • Components Successfully Validated: $success_count"
+    fi
+    
+    if jq -e '.result.details.runTestResult' "$report_file" >/dev/null 2>&1; then
+      local tests_run
+      tests_run=$(jq -r '.result.details.runTestResult.testsRun // 0' "$report_file" 2>/dev/null || echo "0")
+      echo "  • Tests Executed: $tests_run"
+      
+      if [ "$tests_run" -gt 0 ]; then
+        local tests_passed
+        tests_passed=$(jq -r '.result.details.runTestResult.passing // 0' "$report_file" 2>/dev/null || echo "0")
+        echo "  • Tests Passed: $tests_passed"
+      fi
+    fi
+    
+    echo ""
+  fi
+  
+  if [ $exit_code -eq 0 ]; then
     summary "✅ Deployment validation successful with $test_level"
+    echo "✅ Deployment check-only validation PASSED"
     return 0
   else
     summary "❌ Deployment validation failed with $test_level (see $report_file)"
+    echo "❌ Deployment check-only validation FAILED"
     return 1
   fi
 }
@@ -173,24 +243,8 @@ main() {
         echo "  Total files: $total_files"
         echo ""
         
-        echo "⚙️  EXECUTING DEPLOYMENT VALIDATION"
-        echo "===================================="
-        echo "  • Validation Mode: Dry-run (check-only)"
-        echo "  • Test Level: NoTestRun (metadata-only deployment)"
-        echo "  • Target Org: sandbox"
-        echo "  • Source Directory: delta/force-app"
-        echo ""
-        
+        # Execute validation - the function will display all details and progress
         execute_validation "NoTestRun"
-        
-        echo ""
-        echo "📊 Validation Result:"
-        if [ -f "reports/deploy-report.json" ]; then
-          echo "  • Status: $(jq -r '.result.status // "Unknown"' reports/deploy-report.json)"
-          echo "  • Components Deployed: $(jq -r '.result.numberComponentsDeployed // 0' reports/deploy-report.json)"
-          echo "  • Components Total: $(jq -r '.result.numberComponentsTotal // 0' reports/deploy-report.json)"
-          echo "  • Test Level: NoTestRun (no tests executed for metadata-only)"
-        fi
       fi
 
     else
