@@ -376,14 +376,13 @@ jobs:
           if [ "${COMPONENT_FAIL_COUNT}" -gt 0 ] || [ "${TEST_FAIL_COUNT}" -gt 0 ] || [ "${COVERAGE}" -lt "${COVERAGE_THRESHOLD}" ]; then
             echo "⚠️  Validation issues detected. See reports/deploy-report.json and reports/validation-summary.txt for details."
 
-            # === PRINT ACTUAL TEST FAILURES (exact lines) ===
+            # === PRINT ACTUAL TEST FAILURES (exact lines) using jq gsub to sanitize HTML <br> to newline ===
             if jq -e '.result.details.runTestResult.failures' reports/deploy-report.json >/dev/null 2>&1; then
               echo ""
               echo "🧪 Test Failures (full details):"
-              # Print exact failure lines; sanitize HTML <br> to newline for readability
               jq -r '.result.details.runTestResult.failures[]? |
-                ("\(.name): \(.message) (Method: \(.methodName // "unknown"))" )' reports/deploy-report.json 2>/dev/null | sed 's/<br>/\\n/g' | sed 's/\\n/\
-/g' || true
+                (.message |= (gsub("<br>"; "\n")) ) |
+                "\(.name): \(.message) (Method: \(.methodName // "unknown"))"' reports/deploy-report.json 2>/dev/null || true
             fi
 
             # === PRINT ACTUAL COMPONENT FAILURES (exact lines) ===
