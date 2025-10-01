@@ -154,10 +154,10 @@ jobs:
         run: |
           echo "🔍 Analyzing Apex classes in delta for test mapping..."
 
-          # Extract Apex classes from delta package.xml using grep and sed
+          # Extract Apex classes from delta package.xml using a more reliable approach
           if [ -f delta/package/package.xml ]; then
-            # Extract class names from package.xml - look for lines containing <members> within <name>ApexClass</name> blocks
-            DELTA_APEX_CLASSES=$(grep -A 10 '<name>ApexClass</name>' delta/package/package.xml | grep '<members>' | sed 's/.*<members>\(.*\)<\/members>.*/\1/' | tr '\n' ' ' | sed 's/ *$//')
+            # Use grep to find all <members> tags within <name>ApexClass</name> blocks
+            DELTA_APEX_CLASSES=$(grep -oP '(?<=<members>).*?(?=</members>)' delta/package/package.xml | grep -v '^$' | tr '\n' ' ' | sed 's/ *$//')
             echo "📋 Apex classes in delta package.xml: ${DELTA_APEX_CLASSES:-none}"
           else
             echo "⚠️ No delta/package/package.xml found"
