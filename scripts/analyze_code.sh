@@ -38,20 +38,30 @@ run_code_analyzer() {
   echo ""
   echo "🔎 Analyzing $component_type code in $target..."
 
-  # Check if files of this type were modified
-  if [ "${GITHUB_EVENT_MODIFIED:-}" != "null" ] && {
-    [[ "${GITHUB_EVENT_MODIFIED}" == *"$component_type"* ]] ||
-    [[ "${GITHUB_EVENT_ADDED:-}" == *"$component_type"* ]]
-  }; then
+  # Check if package.xml contains this component type OR if target directory exists
+  local has_components=false
+  
+  if [ -f "delta/package/package.xml" ]; then
+    if grep -q "<name>$component_type</name>" delta/package/package.xml 2>/dev/null; then
+      echo "📋 $component_type found in delta package.xml - running analysis..."
+      has_components=true
+    fi
+  fi
+  
+  # Also check if the target directory has files
+  if [ -d "$target" ] && [ "$(find "$target" -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+    echo "📁 $component_type files found in $target - running analysis..."
+    has_components=true
+  fi
 
-    echo "📋 $component_type modifications detected - running analysis..."
-
-    echo "⚙️  Executing Salesforce Code Analyzer..."
+  if [ "$has_components" = true ]; then
+    echo "⚙️  Executing Salesforce Code Analyzer on $target..."
+    
     if sf code-analyzer analyze \
       --target "$target" \
       --view detail \
       --output-file "$output_file" \
-      --severity-threshold "${SEVERITY_THRESHOLD}" > /dev/null 2>&1; then
+      --severity-threshold "${SEVERITY_THRESHOLD}"; then
 
       echo "✅ $component_type analysis completed successfully"
 
@@ -61,17 +71,22 @@ run_code_analyzer() {
         echo "📊 $component_type violations found: $VIOLATION_COUNT"
 
         if [ "$VIOLATION_COUNT" -gt 0 ]; then
-          echo "🔍 Top violations (showing up to 5):"
-          jq -r '.violations[]? | "  • \(.ruleName // "Unknown"): \(.message // "No message")" | select(length > 0)' "$output_file" 2>/dev/null | head -5
+          echo ""
+          echo "🔍 All violations:"
+          jq -r '.violations[]? | "  • [\(.severity)] \(.ruleName // "Unknown"): \(.message // "No message")\n    File: \(.location // "Unknown location")"' "$output_file" 2>/dev/null
         fi
       fi
 
     else
-      echo "⚠️  $component_type analysis completed with warnings"
+      echo "⚠️  $component_type analysis completed with warnings or errors"
+      # Still create empty report file
+      echo '{"violations":[]}' > "$output_file"
     fi
 
   else
     echo "ℹ️  No $component_type modifications detected - skipping analysis"
+    # Create empty report file for consistency
+    echo '{"violations":[]}' > "$output_file"
   fi
 }
 

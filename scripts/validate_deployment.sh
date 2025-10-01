@@ -155,9 +155,29 @@ main() {
         fi
       else
         # Metadata-only deployment - no test execution required
-        summary "📄 Metadata-only deployment - skipping test execution"
+        summary "📄 Metadata-only deployment (LWC/CustomObject/Flow) - no test execution required"
+        
+        echo ""
+        echo "📋 Metadata Components to Deploy:"
+        find delta/force-app -type f 2>/dev/null | sed 's|^delta/force-app/||' | head -20 || echo "  (no files found)"
+        echo ""
+        
         echo "🔄 Executing deployment validation without test execution..."
+        echo "  • Target: delta/force-app"
+        echo "  • Mode: Dry-run validation"
+        echo "  • Test Level: NoTestRun"
+        echo ""
+        
         execute_validation "NoTestRun"
+        
+        echo ""
+        echo "📊 Validation Result:"
+        if [ -f "reports/deploy-report.json" ]; then
+          echo "  • Status: $(jq -r '.result.status // "Unknown"' reports/deploy-report.json)"
+          echo "  • Components Deployed: $(jq -r '.result.numberComponentsDeployed // 0' reports/deploy-report.json)"
+          echo "  • Components Total: $(jq -r '.result.numberComponentsTotal // 0' reports/deploy-report.json)"
+          echo "  • Test Level: NoTestRun (no tests executed for metadata-only)"
+        fi
       fi
 
     else
