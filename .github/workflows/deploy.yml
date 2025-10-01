@@ -91,11 +91,6 @@ jobs:
           echo y | sf plugins install sfdx-git-delta
           sf plugins --core
 
-      - name: Install Code Analyzer Plugin
-        run: |
-          echo y | sf plugins install @salesforce/sfdx-scanner
-          sf scanner --version || echo "Scanner installed successfully"
-
       - name: Generate Deployment Delta Package
         env:
           TARGET_BRANCH: ${{ github.base_ref || 'main' }}
@@ -107,10 +102,42 @@ jobs:
       # Execute comprehensive code quality and security analysis
       # ---------------------------------------------------------------------------
 
-      - name: Execute Static Code Analysis
-        env:
-          GITHUB_EVENT_MODIFIED: ${{ github.event.head_commit.modified }}
-          GITHUB_EVENT_ADDED: ${{ github.event.head_commit.added }}
+      - name: Run Salesforce Code Analyzer for Apex
+        id: run-code-analyzer-apex
+        uses: forcedotcom/run-code-analyzer@v2
+        if: |
+          github.event.head_commit.modified != null &&
+          (contains(github.event.head_commit.modified, 'ApexClass') ||
+           contains(github.event.head_commit.modified, 'ApexTrigger') ||
+           contains(github.event.head_commit.added, 'ApexClass') ||
+           contains(github.event.head_commit.added, 'ApexTrigger'))
+        with:
+          run-arguments: >
+            --target force-app/main/default/classes
+            --view detail
+            --output-file reports/apex.json
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-apex-results
+        continue-on-error: true
+
+      - name: Run Salesforce Code Analyzer for LWC
+        id: run-code-analyzer-lwc
+        uses: forcedotcom/run-code-analyzer@v2
+        if: |
+          github.event.head_commit.modified != null &&
+          (contains(github.event.head_commit.modified, 'LightningComponentBundle') ||
+           contains(github.event.head_commit.added, 'LightningComponentBundle'))
+        with:
+          run-arguments: >
+            --target force-app/main/default/lwc
+            --view detail
+            --output-file reports/lwc.json
+            --severity-threshold ${{ env.SEVERITY_THRESHOLD }}
+          results-artifact-name: code-analyzer-lwc-results
+        continue-on-error: true
+
+      - name: Display Code Analysis Results
+        if: always()
         run: ./scripts/analyze_code.sh
 
       - name: Archive Code Analysis Artifacts
