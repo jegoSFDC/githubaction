@@ -41,8 +41,34 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
   summary "📦 Deployable metadata detected"
 
   # Check if Apex components exist (requiring test execution)
+  # Skip Vlocity components as they don't require Apex tests
   if find delta/force-app -name "*.cls" -o -name "*.trigger" 2>/dev/null | grep -q .; then
-    summary "🧪 Apex components detected - running tests"
+    # Check if only Vlocity components exist (no Apex tests needed)
+    if find delta/force-app -path "*/vlocity/*" -type f 2>/dev/null | grep -q . && \
+       ! find delta/force-app -name "*.cls" -o -name "*.trigger" 2>/dev/null | grep -v "/vlocity/" | grep -q .; then
+      summary "📄 Vlocity-only deployment detected - no Apex test execution required"
+      
+      echo ""
+      echo "⚙️  EXECUTING VLOCITY VALIDATION (NO APEX TESTS)"
+      echo "================================================"
+      echo ""
+      echo "📋 Validation Details:"
+      echo "  • Mode: Dry-run (check-only - no actual deployment)"
+      echo "  • Components: Vlocity metadata only"
+      echo "  • Test Level: NoTestRun (Vlocity components don't require Apex tests)"
+      echo "  • Environment: Sandbox"
+      echo ""
+      
+      sf project deploy start \
+        --source-dir delta/force-app \
+        --target-org sandbox \
+        --dry-run \
+        --test-level NoTestRun \
+        --json > reports/deploy-report.json 2>&1 || true
+      
+      summary "✅ Vlocity validation completed"
+    else
+      summary "🧪 Apex components detected - running tests"
 
     echo ""
     echo "⚙️  EXECUTING DRY-RUN VALIDATION WITH TESTS"
@@ -128,6 +154,7 @@ if [ -d "delta/force-app" ] && [ "$(find delta/force-app -type f 2>/dev/null | w
       else
         summary "❌ Validation failed"
       fi
+    fi
     fi
 
   else

@@ -144,6 +144,7 @@ PY
         # Detect component types for GitHub Actions
         HAS_APEX="false"
         HAS_LWC="false"
+        HAS_VLOCITY="false"
         
         if grep -q "<name>ApexClass</name>" delta/package/package.xml 2>/dev/null || \
            grep -q "<name>ApexTrigger</name>" delta/package/package.xml 2>/dev/null; then
@@ -154,10 +155,18 @@ PY
           HAS_LWC="true"
         fi
         
+        # Check for Vlocity components in delta package
+        if [ -d "delta/force-app" ]; then
+          if find delta/force-app -path "*/vlocity/*" -type f 2>/dev/null | grep -q .; then
+            HAS_VLOCITY="true"
+          fi
+        fi
+        
         # Set component detection flags for GitHub Actions
         echo "has-deployment-package=true" >> "$GITHUB_OUTPUT"
         echo "has-apex=$HAS_APEX" >> "$GITHUB_OUTPUT"
         echo "has-lwc=$HAS_LWC" >> "$GITHUB_OUTPUT"
+        echo "has-vlocity=$HAS_VLOCITY" >> "$GITHUB_OUTPUT"
 
   else
     echo ""
@@ -181,6 +190,7 @@ PY
     echo "has-deployment-package=false" >> "$GITHUB_OUTPUT"
     echo "has-apex=false" >> "$GITHUB_OUTPUT"
     echo "has-lwc=false" >> "$GITHUB_OUTPUT"
+    echo "has-vlocity=false" >> "$GITHUB_OUTPUT"
   fi
 
 else
@@ -202,6 +212,7 @@ else
   echo "has-deployment-package=false" >> "$GITHUB_OUTPUT"
   echo "has-apex=false" >> "$GITHUB_OUTPUT"
   echo "has-lwc=false" >> "$GITHUB_OUTPUT"
+  echo "has-vlocity=false" >> "$GITHUB_OUTPUT"
 fi
 
 echo ""

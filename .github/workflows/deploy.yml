@@ -179,3 +179,27 @@ jobs:
           name: deployment-validation-reports
           path: reports/
           retention-days: 30
+
+      # ---------------------------------------------------------------------------
+      # STAGE 7: VLOCITY COMPONENT DEPLOYMENT
+      # ---------------------------------------------------------------------------
+      # Execute Vlocity component deployment using VBT (Vlocity Build Tool)
+      # Handles both validation (dry-run) and actual deployment based on event type
+      # ---------------------------------------------------------------------------
+
+      - name: Deploy Vlocity Components
+        id: deploy-vlocity
+        if: |
+          always() && 
+          (steps.generate-delta.outcome == 'success' || steps.generate-delta.outcome == 'failure') &&
+          (contains(steps.generate-delta.outputs.has-vlocity, 'true'))
+        run: ./scripts/deploy_vlocity.sh
+        continue-on-error: true
+
+      - name: Archive Vlocity Deployment Reports
+        uses: actions/upload-artifact@v4
+        if: always() && steps.deploy-vlocity.outcome != 'skipped'
+        with:
+          name: vlocity-deployment-reports
+          path: reports/vlocity-*
+          retention-days: 30
